@@ -684,6 +684,8 @@ def last_minute_cancel_punish(user_id: int):
 
 def send_fcm_notification(user, title, body, category=None, link="OPEN_APP"):
     """Sends a push notification to all devices registered by a specific user."""
+    if not current_app.config.get("FIREBASE_ENABLED", False):
+        return
 
     if category:
         setting_name = f"notify_{category}"

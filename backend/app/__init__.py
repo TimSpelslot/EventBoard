@@ -24,14 +24,20 @@ def create_app(config_file=None):
     app.logger.info(f"App running in {os.getenv('FLASK_ENV')} mode")
 
     # --- Firebase Admin Setup ---
-    # We check if it's already initialized to prevent errors during reloads
+    # Only initialize when service account key is present and readable (e.g. disabled in tests/CI)
+    app.config["FIREBASE_ENABLED"] = False
     if not firebase_admin._apps:
-        # Load the path to your credentials file from your config
-        # Or hardcode the path for this local test
         cred_path = os.path.join(app.root_path, 'config', 'serviceAccountKey.json')
-        cred = credentials.Certificate(cred_path)
-        firebase_admin.initialize_app(cred)
-        app.logger.info("Firebase Admin initialized successfully")
+        try:
+            if os.path.isfile(cred_path):
+                cred = credentials.Certificate(cred_path)
+                firebase_admin.initialize_app(cred)
+                app.config["FIREBASE_ENABLED"] = True
+                app.logger.info("Firebase Admin initialized successfully")
+            else:
+                app.logger.info("Firebase disabled: serviceAccountKey.json not found")
+        except Exception as e:
+            app.logger.info("Firebase disabled: could not load service account key: %s", e)
 
     # load config
     if not config_file:

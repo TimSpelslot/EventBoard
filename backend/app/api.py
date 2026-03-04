@@ -608,16 +608,17 @@ class AdventureIDlessRequest(MethodView):
                     pass
 
             db.session.commit()
-            all_tokens = [t.token for t in FCMToken.query.all()]
-            if all_tokens:
-                message = messaging.MulticastMessage(
-                    notification=messaging.Notification(
-                        title="New Adventure Alert! ⚔️",
-                        body=f"{current_user.name} just posted: {new_adv.title}",
-                    ),
-                    tokens=all_tokens,
-                )
-                messaging.send_each_for_multicast(message)
+            if current_app.config.get("FIREBASE_ENABLED", False):
+                all_tokens = [t.token for t in FCMToken.query.all()]
+                if all_tokens:
+                    message = messaging.MulticastMessage(
+                        notification=messaging.Notification(
+                            title="New Adventure Alert! ⚔️",
+                            body=f"{current_user.name} just posted: {new_adv.title}",
+                        ),
+                        tokens=all_tokens,
+                    )
+                    messaging.send_each_for_multicast(message)
             # Normal success: return the model instance (decorator will dump it)
             return new_adv
 
@@ -1086,19 +1087,18 @@ class FCMSaveToken(MethodView):
                 db.session.add(new_token)
                 db.session.commit()
 
-            # 2. Trigger the success notification using our NEW DATA-ONLY format
-            # Use current_user.display_name (matching your ProfilePage.vue field)
-            name = getattr(current_user, 'display_name', 'Adventurer')
-            
-            message = messaging.Message(
-                data={
-                    "title": "Account Linked! 🛡️",
-                    "body": f"Hi {name}, your device is now registered.",
-                    "click_action": "OPEN_APP" 
-                },
-                token=fcm_token,
-            )
-            messaging.send(message)
+            # 2. Trigger the success notification using our NEW DATA-ONLY format (if Firebase enabled)
+            if current_app.config.get("FIREBASE_ENABLED", False):
+                name = getattr(current_user, 'display_name', 'Adventurer')
+                message = messaging.Message(
+                    data={
+                        "title": "Account Linked! 🛡️",
+                        "body": f"Hi {name}, your device is now registered.",
+                        "click_action": "OPEN_APP"
+                    },
+                    token=fcm_token,
+                )
+                messaging.send(message)
 
             return {"message": "Token linked to your account successfully"}, 200
 
@@ -1117,6 +1117,9 @@ class FCMBroadcast(MethodView):
         """Broadcast to all registered devices. Admin only"""
         if not is_admin(current_user):
             abort(403, message="Admin only")
+        if not current_app.config.get("FIREBASE_ENABLED", False):
+            return {"message": "Firebase is disabled (no service account key)"}, 503
+
         # 1. Fetch all tokens from the DB
         tokens = [t.token for t in FCMToken.query.all()]
         
@@ -1152,6 +1155,9 @@ class DebugPush(MethodView):
         # 1. Find tokens for the real logged-in user
         user_tokens = FCMToken.query.filter_by(user_id=current_user.id).all()
         
+        if not current_app.config.get("FIREBASE_ENABLED", False):
+            return {"status": "disabled", "message": "Firebase is disabled (no service account key)"}, 503
+
         if not user_tokens:
             return {
                 "status": "error",
@@ -1194,6 +1200,8 @@ class TestAutomation(MethodView):
             # Test 1: New Adventure (to everyone with tokens) — admin only
             if not is_admin(current_user):
                 abort(403, message="Admin only")
+            if not current_app.config.get("FIREBASE_ENABLED", False):
+                return {"message": "Firebase is disabled (no service account key)"}, 503
             tokens = [t.token for t in FCMToken.query.all()]
             if tokens:
                 message = messaging.MulticastMessage(
