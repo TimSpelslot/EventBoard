@@ -4,13 +4,12 @@ importScripts('https://www.gstatic.com/firebasejs/9.0.0/firebase-messaging-compa
 // Initialize the Firebase app in the service worker
 // Use the exact same config as your boot file
 firebase.initializeApp({
-  apiKey: 'AIzaSyCmGRlXbGiaUr9otfEoBC1jZ9I17Ym_GWk',
-  authDomain: 'adventure-board-40e02.firebaseapp.com',
-  projectId: 'adventure-board-40e02',
-  storageBucket: 'adventure-board-40e02.firebasestorage.app',
-  messagingSenderId: '1065719539107',
-  appId: '1:1065719539107:web:bb0adcf838091c104d2616',
-  measurementId: 'G-ZKJ4BGQ9FX'
+  apiKey: "AIzaSyBfkajd8fUdQ5NeqiBM1p3WVbOD8pgrOX8",
+  authDomain: "adventure-board-40e02.firebaseapp.com",
+  projectId: "adventure-board-40e02",
+  storageBucket: "adventure-board-40e02.firebasestorage.app",
+  messagingSenderId: "1065719539107",
+  appId: "1:1065719539107:web:bb0adcf838091c104d2616",
 });
 
 const messaging = firebase.messaging();

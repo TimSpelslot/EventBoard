@@ -5,13 +5,13 @@ import { getMessaging, getToken, Messaging } from 'firebase/messaging';
 // 1. Get these values from your Firebase Console:
 // Project Settings > General > Your Apps (Web App)
 const firebaseConfig = {
-  apiKey: 'AIzaSyCmGRlXbGiaUr9otfEoBC1jZ9I17Ym_GWk',
-  authDomain: 'adventure-board-40e02.firebaseapp.com',
-  projectId: 'adventure-board-40e02',
-  storageBucket: 'adventure-board-40e02.firebasestorage.app',
-  messagingSenderId: '1065719539107',
-  appId: '1:1065719539107:web:bb0adcf838091c104d2616',
-  measurementId: 'G-ZKJ4BGQ9FX'
+  apiKey: process.env.FIREBASE_API_KEY,
+  authDomain: process.env.FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.FIREBASE_PROJECT_ID,
+  storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.FIREBASE_APP_ID,
+  measurementId: process.env.FIREBASE_MEASUREMENT_ID
 };
 
 // 2. Initialize Firebase

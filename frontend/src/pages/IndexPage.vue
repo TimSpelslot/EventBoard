@@ -589,7 +589,7 @@ async setupNotifications() {
     // 2. Get the unique FCM Token
     // We pass our $messaging instance and the VAPID key.
     const token = await getToken(this.$messaging, {
-      vapidKey: 'BHdufWLs6iJn8hQ_ZtNSRtEpF9mVdXjlNhvoqWx2fOkWe-FpDNX0T2_bPr3eeV-oTfpz-0MLIKdbiatQ4nEF6xg'
+      vapidKey: process.env.FIREBASE_VAPID_KEY
     });
 
     if (token) {
