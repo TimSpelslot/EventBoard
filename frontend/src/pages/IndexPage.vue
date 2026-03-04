@@ -540,8 +540,8 @@ export default defineComponent({
     };
   },
   data() {
-    let today  = new Date();
-    let day = today.getDay(); // Sunday = 0, Monday = 1, ..., Saturday = 6
+    const today = new Date();
+    const day = today.getDay(); // Sunday = 0, Monday = 1, ..., Saturday = 6
 
   // If today is Thursday (4) to Sunday (0), move to next week
   if (day === 0 || day >= 4) {

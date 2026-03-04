@@ -8,11 +8,9 @@
 // Configuration for your app
 // https://v2.quasar.dev/quasar-cli-webpack/quasar-config-js
 
-/* eslint-disable @typescript-eslint/no-var-requires */
+import { defineConfig } from '#q-app/wrappers';
 
-const { configure } = require('quasar/wrappers');
-
-module.exports = configure(function (ctx) {
+export default defineConfig((ctx) => {
   return {
     // https://v2.quasar.dev/quasar-cli-webpack/supporting-ts
     supportTS: {
@@ -90,13 +88,14 @@ module.exports = configure(function (ctx) {
         type: 'http',
       },
       port: 8080,
-      proxy: {
-        '/api/': {
+      proxy: [
+        {
+          context: ['/api'],
           target: 'https://localhost:5000/',
-                     secure: false,
+          secure: false,
           changeOrigin: true,
         },
-      },
+      ],
       open: true, // opens browser window automatically
     },
 

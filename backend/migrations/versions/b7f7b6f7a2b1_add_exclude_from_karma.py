@@ -15,18 +15,27 @@ branch_labels = None
 depends_on = None
 
 
+def _column_exists(bind, table_name, column_name):
+    inspector = sa.inspect(bind)
+    return any(col["name"] == column_name for col in inspector.get_columns(table_name))
+
+
 def upgrade():
-    with op.batch_alter_table("adventures", schema=None) as batch_op:
-        batch_op.add_column(
-            sa.Column(
-                "exclude_from_karma",
-                sa.Boolean(),
-                nullable=False,
-                server_default=sa.text("0"),
+    bind = op.get_bind()
+    if not _column_exists(bind, "adventures", "exclude_from_karma"):
+        with op.batch_alter_table("adventures", schema=None) as batch_op:
+            batch_op.add_column(
+                sa.Column(
+                    "exclude_from_karma",
+                    sa.Boolean(),
+                    nullable=False,
+                    server_default=sa.text("0"),
+                )
             )
-        )
 
 
 def downgrade():
-    with op.batch_alter_table("adventures", schema=None) as batch_op:
-        batch_op.drop_column("exclude_from_karma")
+    bind = op.get_bind()
+    if _column_exists(bind, "adventures", "exclude_from_karma"):
+        with op.batch_alter_table("adventures", schema=None) as batch_op:
+            batch_op.drop_column("exclude_from_karma")
