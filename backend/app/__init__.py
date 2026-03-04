@@ -151,6 +151,10 @@ def create_app(config_file=None):
     # --- Cronjobs ---   
     a_d, a_h = config['TIMING']['assignment_day'].split("@")
     r_d, r_h = config['TIMING']['release_day'].split("@")
+    _weekday_names = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+    _a_weekday_idx = _weekday_names.index(a_d[:3].lower()) if a_d[:3].lower() in _weekday_names else 2
+    _nudge_hour = (int(a_h) - 4) % 24
+    _nudge_day = _weekday_names[(_a_weekday_idx - 1) % 7] if (int(a_h) - 4) < 0 else a_d
 
     @ap_scheduler.task('cron', id='make_assignments', day_of_week=a_d, hour=a_h)
     def cron_make_assignments():
@@ -166,7 +170,7 @@ def create_app(config_file=None):
             app.logger.info("--- Triggering scheduled 'release assignment' job ---")
             release_assignments()
 
-    @ap_scheduler.task('cron', id='deadline_nudge', day_of_week=a_d, hour=int(a_h)-4)
+    @ap_scheduler.task('cron', id='deadline_nudge', day_of_week=_nudge_day, hour=_nudge_hour)
     def cron_deadline_nudge():
         with app.app_context():
             today = date.today()
@@ -189,12 +193,12 @@ def create_app(config_file=None):
             app.logger.info("--- Triggering scheduled 'deadline nudge' job ---")
 
     # X days before assignment day: remind subscribed users to create an adventure
-    _weekday_names = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
     _reminder_days = config['TIMING'].get('create_adventure_reminder_days', 3)
-    _a_weekday = _weekday_names.index(a_d[:3].lower()) if a_d[:3].lower() in _weekday_names else 2
-    _reminder_weekday = _weekday_names[(_a_weekday - _reminder_days + 7) % 7]
+    _reminder_weekday_idx = (_a_weekday_idx - _reminder_days + 7) % 7
+    _reminder_weekday = _weekday_names[_reminder_weekday_idx]
+    _reminder_day = _weekday_names[(_reminder_weekday_idx - 1) % 7] if (int(a_h) - 4) < 0 else _reminder_weekday
 
-    @ap_scheduler.task('cron', id='create_adventure_reminder', day_of_week=_reminder_weekday, hour=int(a_h) - 4)
+    @ap_scheduler.task('cron', id='create_adventure_reminder', day_of_week=_reminder_day, hour=_nudge_hour)
     def cron_create_adventure_reminder():
         with app.app_context():
             app.logger.info("--- Triggering scheduled 'create adventure reminder' job ---")
