@@ -51,14 +51,17 @@ export default defineConfig((ctx) => {
     // Full list of options: https://v2.quasar.dev/quasar-cli-webpack/quasar-config-js#Property%3A-build
     build: {
       vueRouterMode: 'hash', // available values: 'hash', 'history'
-      FIREBASE_API_KEY: process.env.FB_API_KEY,
-      FIREBASE_AUTH_DOMAIN: process.env.FB_AUTH_DOMAIN,
-      FIREBASE_PROJECT_ID: process.env.FB_PROJECT_ID,
-      FIREBASE_STORAGE_BUCKET: process.env.FB_STORAGE_BUCKET,
-      FIREBASE_MESSAGING_SENDER_ID: process.env.FB_MESSAGING_SENDER_ID,
-      FIREBASE_APP_ID: process.env.FB_APP_ID,
-      FIREBASE_MEASUREMENT_ID: process.env.FB_MEASUREMENT_ID,
-      FIREBASE_VAPID_KEY: process.env.FB_VAPID_KEY
+      // Expose to app code as process.env.FIREBASE_* (required for in-bundle replacement)
+      env: {
+        FIREBASE_API_KEY: process.env.FB_API_KEY,
+        FIREBASE_AUTH_DOMAIN: process.env.FB_AUTH_DOMAIN,
+        FIREBASE_PROJECT_ID: process.env.FB_PROJECT_ID,
+        FIREBASE_STORAGE_BUCKET: process.env.FB_STORAGE_BUCKET,
+        FIREBASE_MESSAGING_SENDER_ID: process.env.FB_MESSAGING_SENDER_ID,
+        FIREBASE_APP_ID: process.env.FB_APP_ID,
+        FIREBASE_MEASUREMENT_ID: process.env.FB_MEASUREMENT_ID,
+        FIREBASE_VAPID_KEY: process.env.FB_VAPID_KEY
+      },
 
       // transpile: false,
       // publicPath: '/',

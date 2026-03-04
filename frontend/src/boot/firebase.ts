@@ -1,6 +1,7 @@
 import { boot } from 'quasar/wrappers';
 import { initializeApp } from 'firebase/app';
 import { getMessaging, getToken, Messaging } from 'firebase/messaging';
+import { initFCM } from '../lib/fcm';
 
 // 1. Get these values from your Firebase Console:
 // Project Settings > General > Your Apps (Web App)
@@ -26,8 +27,8 @@ declare module '@vue/runtime-core' {
 }
 
 export default boot(({ app }) => {
-  // This makes this.$messaging available in all your components
   app.config.globalProperties.$messaging = messaging;
+  initFCM(messaging, process.env.FIREBASE_VAPID_KEY);
 });
 
 // We export these for direct use in the component logic

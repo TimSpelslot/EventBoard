@@ -16,17 +16,25 @@ depends_on = None
 
 
 def upgrade():
-    with op.batch_alter_table("adventures", schema=None) as batch_op:
-        batch_op.add_column(
-            sa.Column(
-                "is_story_adventure",
-                sa.Boolean(),
-                nullable=False,
-                server_default=sa.text("0"),
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = [c["name"] for c in inspector.get_columns("adventures")]
+    if "is_story_adventure" not in columns:
+        with op.batch_alter_table("adventures", schema=None) as batch_op:
+            batch_op.add_column(
+                sa.Column(
+                    "is_story_adventure",
+                    sa.Boolean(),
+                    nullable=False,
+                    server_default=sa.text("0"),
+                )
             )
-        )
 
 
 def downgrade():
-    with op.batch_alter_table("adventures", schema=None) as batch_op:
-        batch_op.drop_column("is_story_adventure")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = [c["name"] for c in inspector.get_columns("adventures")]
+    if "is_story_adventure" in columns:
+        with op.batch_alter_table("adventures", schema=None) as batch_op:
+            batch_op.drop_column("is_story_adventure")

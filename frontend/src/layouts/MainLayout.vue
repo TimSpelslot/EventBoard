@@ -8,9 +8,9 @@
           <q-btn label="FAQ" icon="help" to="/faq" />
         </div>
         <q-avatar icon="img:spelslot-logo.svg" size="50px"></q-avatar>
-        <div>
+        <div class="q-gutter-x-sm">
           <q-btn icon="notifications" color="primary" @click="setupNotifications" />
-          <q-toggle class="q-mr-md" label="Noob" v-if="me?.privilege_level > 0 || droppedPrivileges" color="secondary" :modelValue="droppedPrivileges" @update:modelValue="togglePrivileges" />
+          <q-toggle class="q-sm-md" label="Noob" v-if="me?.privilege_level > 0 || droppedPrivileges" color="secondary" :modelValue="droppedPrivileges" @update:modelValue="togglePrivileges" />
           <q-spinner size="lg" v-if="adminActionsActive > 0" />
           <q-btn
             v-if="me"
@@ -63,7 +63,6 @@
           </q-btn>
           <q-btn v-else label="Login" @click="login" icon="login" />
           <q-btn
-            class="q-ml-sm"
             color="primary"
             @click="toggleDarkMode"
             :icon="darkModeIcon"
@@ -111,6 +110,7 @@
 <script lang="ts">
 import { defineComponent, computed } from 'vue';
 import { isAxiosError } from 'axios';
+import { getFCMToken } from 'src/lib/fcm';
 
 export default defineComponent({
   name: 'MainLayout',
@@ -228,6 +228,49 @@ export default defineComponent({
         this.me!.privilege_level = 0;
       } else {
         this.fetchMe();
+      }
+    },
+    async setupNotifications() {
+      if (!this.me) {
+        this.$q.notify({
+          color: 'negative',
+          message: 'You need to be logged in to enable notifications.',
+          icon: 'error'
+        });
+        return;
+      }
+      try {
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+          this.$q.notify({
+            color: 'negative',
+            message: 'Permission denied for notifications.',
+            icon: 'notifications_off'
+          });
+          return;
+        }
+        const token = await getFCMToken();
+        if (token) {
+          const response = await this.$api.post('/api/notifications/save-token', {
+            token: token
+          });
+          this.$q.notify({
+            color: 'positive',
+            message: response.data.message || 'Notifications linked!',
+            icon: 'notifications_active'
+          });
+        } else {
+          this.$q.notify({
+            color: 'warning',
+            message: 'Could not get notification token.'
+          });
+        }
+      } catch (err) {
+        console.error('Error enabling notifications:', err);
+        this.$q.notify({
+          color: 'negative',
+          message: 'Failed to enable notifications.'
+        });
       }
     },
   },
