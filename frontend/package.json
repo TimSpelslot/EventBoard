@@ -10,7 +10,7 @@
     "build": "quasar build",
     "lint": "eslint \"./src/**/*.{js,ts,vue}\"",
     "format": "prettier --write \"**/*.{js,ts,vue,scss,html,md,json}\" --ignore-path .gitignore",
-    "test": "vitest run"
+    "test": "node scripts/ensure-quasar-tsconfig.cjs && vitest run"
   },
   "dependencies": {
     "@quasar/extras": "^1.0.0",
