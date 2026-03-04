@@ -188,4 +188,28 @@ def create_app(config_file=None):
                 send_fcm_notification(user, "Deadline Reminder", "Don't forget to sign up for your next adventure!")
             app.logger.info("--- Triggering scheduled 'deadline nudge' job ---")
 
+    # X days before assignment day: remind subscribed users to create an adventure
+    _weekday_names = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+    _reminder_days = config['TIMING'].get('create_adventure_reminder_days', 3)
+    _a_weekday = _weekday_names.index(a_d[:3].lower()) if a_d[:3].lower() in _weekday_names else 2
+    _reminder_weekday = _weekday_names[(_a_weekday - _reminder_days + 7) % 7]
+
+    @ap_scheduler.task('cron', id='create_adventure_reminder', day_of_week=_reminder_weekday, hour=int(a_h) - 4)
+    def cron_create_adventure_reminder():
+        with app.app_context():
+            app.logger.info("--- Triggering scheduled 'create adventure reminder' job ---")
+            users_to_remind = db.session.scalars(
+                db.select(User)
+                .join(FCMToken)
+                .where(User.notify_create_adventure_reminder == True)
+            ).all()
+            for user in users_to_remind:
+                send_fcm_notification(
+                    user,
+                    "Create an adventure",
+                    f"Signup deadline is in {_reminder_days} day(s). Add an adventure so players can sign up!",
+                    category="create_adventure_reminder",
+                )
+            app.logger.info("--- Create adventure reminder done ---")
+
     return app

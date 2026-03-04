@@ -54,6 +54,7 @@ class User(UserMixin, db.Model):
     notify_new_adventure = db.Column(db.Boolean, default=True)
     notify_deadline = db.Column(db.Boolean, default=True)
     notify_assignments = db.Column(db.Boolean, default=True)
+    notify_create_adventure_reminder = db.Column(db.Boolean, default=False)
 
     def __repr__(self):
         return f"<User(display_name='{self.display_name}', karma={self.karma}, privilege_level={self.privilege_level})>"

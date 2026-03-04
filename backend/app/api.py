@@ -486,7 +486,10 @@ class UserResource(MethodView):
         except SQLAlchemyError as e:
             abort(500, message=f"Database error: {str(e)}")
 
-    @blp_users.arguments(UserSchema(partial=True, only=["display_name", "world_builder_name", "dnd_beyond_name", "email"]))
+    @blp_users.arguments(UserSchema(partial=True, only=[
+        "display_name", "world_builder_name", "dnd_beyond_name", "email",
+        "notify_new_adventure", "notify_deadline", "notify_assignments", "notify_create_adventure_reminder",
+    ]))
     @blp_users.response(200, UserSchema(exclude=['karma']))
     def patch(self, args, user_id):
         """
@@ -1190,8 +1193,8 @@ class TestAutomation(MethodView):
     @login_required
     def post(self, target):
         """
-        Manually triggers one of the three notification scenarios.
-        target can be: 'new_adventure', 'deadline', or 'release'
+        Manually triggers one of the notification scenarios.
+        target can be: 'new_adventure', 'deadline', 'release', or 'create_adventure_reminder'
         """
         
         
@@ -1236,5 +1239,15 @@ class TestAutomation(MethodView):
                 category="assignments"
             )
             return {"message": "Sent 'Assignment Release' to your device"}
+
+        elif target == "create_adventure_reminder":
+            # Test 4: Create adventure reminder (to you only, if subscribed)
+            send_fcm_notification(
+                current_user,
+                "Create an adventure",
+                "TEST: Signup deadline is in a few days. Add an adventure so players can sign up!",
+                category="create_adventure_reminder",
+            )
+            return {"message": "Sent 'Create Adventure Reminder' to your device"}
 
         return {"error": "Invalid target"}, 400

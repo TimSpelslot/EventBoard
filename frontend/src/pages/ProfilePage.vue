@@ -37,7 +37,17 @@
       <q-item-label caption>Notify me when parties are finalized</q-item-label>
     </q-item-section>
     <q-item-section side>
-      <q-toggle v-model="notify_release" color="primary" />
+      <q-toggle v-model="notify_assignments" color="primary" />
+    </q-item-section>
+  </q-item>
+
+  <q-item tag="label" v-ripple>
+    <q-item-section>
+      <q-item-label>Create adventure reminder</q-item-label>
+      <q-item-label caption>Remind me X days before signup deadline to add an adventure</q-item-label>
+    </q-item-section>
+    <q-item-section side>
+      <q-toggle v-model="notify_create_adventure_reminder" color="primary" />
     </q-item-section>
   </q-item>
 </q-list>
@@ -73,7 +83,8 @@ export default defineComponent({
       dnd_beyond_name: me?.dnd_beyond_name,
       notify_new_adventure: me?.notify_new_adventure ?? true,
       notify_deadline: me?.notify_deadline ?? true,
-      notify_release: me?.notify_release ?? true,
+      notify_assignments: me?.notify_assignments ?? true,
+      notify_create_adventure_reminder: me?.notify_create_adventure_reminder ?? false,
     };
   },
   methods: {
@@ -83,8 +94,9 @@ export default defineComponent({
         world_builder_name: this.world_builder_name,
         dnd_beyond_name: this.dnd_beyond_name,
         notify_new_adventure: this.notify_new_adventure,
-       notify_deadline: this.notify_deadline,
-        notify_release: this.notify_release,
+        notify_deadline: this.notify_deadline,
+        notify_assignments: this.notify_assignments,
+        notify_create_adventure_reminder: this.notify_create_adventure_reminder,
       });
       this.$emit('changedUser');
       this.$q.notify({
