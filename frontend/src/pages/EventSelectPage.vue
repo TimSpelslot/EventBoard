@@ -57,7 +57,14 @@
           <q-input v-model="form.title" :label="dialogLabels.title" />
           <q-input v-model="form.description" :label="dialogLabels.description" type="textarea" autogrow />
           <q-input v-model="form.image_url" :label="dialogLabels.imageUrl" />
+          <q-toggle v-model="form.is_single_event" :label="dialogLabels.singleEvent" />
+          <DatePicker
+            v-if="form.is_single_event"
+            v-model="form.single_date"
+            :label="dialogLabels.singleEventDate"
+          />
           <q-select
+            v-if="!form.is_single_event"
             v-model="form.week_of_month"
             :options="dialogWeekOptions"
             emit-value
@@ -65,6 +72,7 @@
             :label="dialogLabels.weekOfMonth"
           />
           <q-select
+            v-if="!form.is_single_event"
             v-model="form.weekday"
             :options="dialogWeekdayOptions"
             emit-value
@@ -72,7 +80,6 @@
             :label="dialogLabels.weekday"
           />
           <q-toggle v-model="form.exclude_july_august" :label="dialogLabels.excludeJulyAugust" />
-          <q-toggle v-model="form.is_single_event" :label="dialogLabels.singleEvent" />
           <q-input v-model.number="form.sort_order" :label="dialogLabels.sortOrder" type="number" />
         </q-card-section>
         <q-card-actions align="right">
@@ -86,9 +93,11 @@
 
 <script lang="ts">
 import { defineComponent, inject } from 'vue';
+import DatePicker from 'src/components/DatePicker.vue';
 
 export default defineComponent({
   name: 'EventSelectPage',
+  components: { DatePicker },
   setup() {
     return {
       me: inject('me') as any,
@@ -125,6 +134,7 @@ export default defineComponent({
         weekday: 2,
         exclude_july_august: false,
         is_single_event: false,
+        single_date: '',
         sort_order: 10,
         is_active: true,
       },
@@ -148,6 +158,7 @@ export default defineComponent({
           weekday: 'Weekdag',
           excludeJulyAugust: 'Juli en augustus uitsluiten',
           singleEvent: 'Eenmalig evenement (geen weeknavigatie)',
+          singleEventDate: 'Datum (eenmalig evenement)',
           sortOrder: 'Sorteervolgorde',
           cancel: 'Annuleren',
           save: 'Opslaan',
@@ -180,6 +191,7 @@ export default defineComponent({
         weekday: 'Weekday',
         excludeJulyAugust: 'Exclude July & August',
         singleEvent: 'Single event (no week navigation)',
+        singleEventDate: 'Date (single event)',
         sortOrder: 'Sort order',
         cancel: 'Cancel',
         save: 'Save',
@@ -263,6 +275,7 @@ export default defineComponent({
         weekday: 2,
         exclude_july_august: false,
         is_single_event: false,
+        single_date: '',
         sort_order: 10,
         is_active: true,
       };
@@ -284,6 +297,7 @@ export default defineComponent({
         weekday: eventType.weekday,
         exclude_july_august: eventType.exclude_july_august,
         is_single_event: Boolean(eventType.is_single_event),
+        single_date: Boolean(eventType.is_single_event) ? (eventType.next_date || '') : '',
         sort_order: eventType.sort_order,
         is_active: eventType.is_active,
       };
@@ -311,11 +325,25 @@ export default defineComponent({
       return 'background: linear-gradient(120deg, #2f4858, #33658a);';
     },
     async saveEventType() {
+      const payload: any = {
+        ...this.form,
+      };
+
+      if (payload.is_single_event && payload.single_date) {
+        const selected = new Date(`${payload.single_date}T00:00:00`);
+        const dayOfWeek = selected.getDay();
+        payload.weekday = (dayOfWeek + 6) % 7;
+        payload.week_of_month = Math.floor((selected.getDate() - 1) / 7) + 1;
+        payload.exclude_july_august = false;
+      }
+
+      delete payload.single_date;
+
       if (this.editingEventId) {
-        await this.$api.patch(`/api/event-types/${this.editingEventId}`, this.form);
+        await this.$api.patch(`/api/event-types/${this.editingEventId}`, payload);
         this.$q.notify({ type: 'positive', message: this.dialogLabels.updatedMessage });
       } else {
-        await this.$api.post('/api/event-types', this.form);
+        await this.$api.post('/api/event-types', payload);
         this.$q.notify({ type: 'positive', message: this.dialogLabels.createdMessage });
       }
       this.showDialog = false;

@@ -56,10 +56,8 @@
                 You can toggle notifications from your profile page.
               </p>
               <ul>
-                <li>New adventure announcements</li>
-                <li>Signup deadline reminders</li>
-                <li>Assignment release updates</li>
-                <li>Create-adventure reminders</li>
+                <li>Assignment release and waiting-list updates</li>
+                <li>Admin reminders (release reminders and new-event notices)</li>
               </ul>
             </div>
           </q-card-section>

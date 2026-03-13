@@ -43,6 +43,20 @@
                   >
                     <q-item-section>Reassigne players form the waitinglist</q-item-section>
                   </q-item>
+                  <q-item
+                    clickable
+                    v-close-popup
+                    @click="adminAction('release')"
+                  >
+                    <q-item-section>Release assignments</q-item-section>
+                  </q-item>
+                  <q-item
+                    clickable
+                    v-close-popup
+                    @click="adminAction('reset')"
+                  >
+                    <q-item-section>Reset released assignments</q-item-section>
+                  </q-item>
                   <q-item clickable v-close-popup @click="signups">
                     <q-item-section>See current signups</q-item-section>
                   </q-item>
@@ -99,7 +113,7 @@
 <script lang="ts">
 import { defineComponent, computed } from 'vue';
 import { isAxiosError } from 'axios';
-import { getFCMToken } from 'src/lib/fcm';
+import { getFCMToken } from '../lib/fcm';
 
 export default defineComponent({
   name: 'MainLayout',

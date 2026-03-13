@@ -23,6 +23,24 @@ def ensure_event_type_schema_compat():
                     "Schema compat: missing adventures.event_type_id, applying ALTER TABLE."
                 )
                 conn.execute(text("ALTER TABLE adventures ADD COLUMN event_type_id INTEGER NULL"))
+            if "release_assignments" not in adventure_cols:
+                current_app.logger.warning(
+                    "Schema compat: missing adventures.release_assignments, applying ALTER TABLE."
+                )
+                conn.execute(
+                    text(
+                        "ALTER TABLE adventures ADD COLUMN release_assignments BOOLEAN NOT NULL DEFAULT 0"
+                    )
+                )
+            if "release_reminder_days" not in adventure_cols:
+                current_app.logger.warning(
+                    "Schema compat: missing adventures.release_reminder_days, applying ALTER TABLE."
+                )
+                conn.execute(
+                    text(
+                        "ALTER TABLE adventures ADD COLUMN release_reminder_days INTEGER NOT NULL DEFAULT 2"
+                    )
+                )
 
         if "event_types" in table_names:
             event_type_cols = {c["name"] for c in inspector.get_columns("event_types")}
@@ -94,24 +112,23 @@ def ensure_default_event_types():
     if db.session.scalar(db.select(func.count(EventType.id))) > 0:
         return
 
-    defaults = [
-        EventType(
-            title="Dungeons & Dragons Jeugd 12-18",
-            description="Elke eerste zondag van de maand, behalve juli en augustus.",
-            weekday=6,
-            week_of_month=1,
-            exclude_july_august=True,
-            sort_order=1,
-        ),
-        EventType(
-            title="Dungeons & Dragons Junior 8-12",
-            description="Elke tweede woensdag van de maand, behalve juli en augustus.",
-            weekday=2,
-            week_of_month=2,
-            exclude_july_august=True,
-            sort_order=2,
-        ),
-    ]
+    jeugd = EventType()
+    jeugd.title = "Dungeons & Dragons Jeugd 12-18"
+    jeugd.description = "Elke eerste zondag van de maand, behalve juli en augustus."
+    jeugd.weekday = 6
+    jeugd.week_of_month = 1
+    jeugd.exclude_july_august = True
+    jeugd.sort_order = 1
+
+    junior = EventType()
+    junior.title = "Dungeons & Dragons Junior 8-12"
+    junior.description = "Elke tweede woensdag van de maand, behalve juli en augustus."
+    junior.weekday = 2
+    junior.week_of_month = 2
+    junior.exclude_july_august = True
+    junior.sort_order = 2
+
+    defaults = [jeugd, junior]
 
     db.session.add_all(defaults)
     db.session.commit()
@@ -350,6 +367,111 @@ def assign_players_to_adventures(today=None):
     current_app.logger.info(f"Assigned players to adventures: {dict(assignment_map)}")
     db.session.commit()
 
+
+def release_assignments(today=None):
+    """Release assignments and notify users of their final status."""
+    today = today or date.today()
+    start_of_week, end_of_week = get_upcoming_week(today)
+
+    adventures = db.session.execute(
+        db.select(Adventure).where(
+            Adventure.date >= start_of_week,
+            Adventure.date <= end_of_week,
+        )
+    ).scalars().all()
+
+    if not adventures:
+        current_app.logger.info("No adventures found for release window.")
+        return
+
+    for adventure in adventures:
+        adventure.release_assignments = True
+
+    db.session.commit()
+
+    assignments = db.session.execute(
+        db.select(Assignment)
+        .join(Assignment.adventure)
+        .join(Assignment.user)
+        .where(
+            Adventure.date >= start_of_week,
+            Adventure.date <= end_of_week,
+            Adventure.release_assignments.is_(True),
+        )
+        .options(
+            db.contains_eager(Assignment.adventure),
+            db.contains_eager(Assignment.user),
+        )
+    ).scalars().all()
+
+    assigned_messages = defaultdict(list)
+    waiting_messages = defaultdict(list)
+
+    for assignment in assignments:
+        user = assignment.user
+        adventure = assignment.adventure
+        if not user or not adventure:
+            continue
+        if adventure.is_waitinglist == 1:
+            waiting_messages[user.id].append(f"{adventure.date.isoformat()}")
+        else:
+            assigned_messages[user.id].append(adventure.title)
+
+    for user_id, titles in assigned_messages.items():
+        user = db.session.get(User, user_id)
+        if not user:
+            continue
+        send_fcm_notification(
+            user,
+            "Assignments Released",
+            f"You are assigned to: {', '.join(sorted(set(titles)))}",
+            category="assignments",
+        )
+
+    for user_id, dates in waiting_messages.items():
+        user = db.session.get(User, user_id)
+        if not user:
+            continue
+        send_fcm_notification(
+            user,
+            "Waiting List Status",
+            "You are currently on a waiting list. We will notify you if a spot opens up.",
+            category="assignments",
+        )
+
+
+def reset_release(today=None):
+    today = today or date.today()
+    start_of_week, end_of_week = get_upcoming_week(today)
+    stmt = (
+        db.update(Adventure)
+        .where(
+            Adventure.date >= start_of_week,
+            Adventure.date <= end_of_week,
+        )
+        .values(release_assignments=False)
+    )
+    db.session.execute(stmt)
+    db.session.commit()
+
+
+def notify_admins_new_adventure(adventure: Adventure, creator: User):
+    """Send a create-event notification to admins who opted into admin reminders."""
+    admins = db.session.execute(
+        db.select(User).where(
+            User.privilege_level >= 2,
+            User.notify_create_adventure_reminder.is_(True),
+        )
+    ).scalars().all()
+
+    for admin in admins:
+        send_fcm_notification(
+            admin,
+            "New event created",
+            f"{creator.display_name} created: {adventure.title}",
+            category="create_adventure_reminder",
+        )
+
 def reassign_players_from_waiting_list(today=None, auto_commit=True):
     """
     Reassign players from the waiting list to newly opened slots in adventures this week.
@@ -451,7 +573,12 @@ def reassign_players_from_waiting_list(today=None, auto_commit=True):
     if auto_commit and reassigned_users:
         db.session.commit()
         for user, adventure_title in reassigned_users:
-            send_fcm_notification(user, "Reassigned from Waiting List", f"You have been moved from the waiting list to {adventure_title}!")
+            send_fcm_notification(
+                user,
+                "Reassigned from Waiting List",
+                f"You have been moved from the waiting list to {adventure_title}!",
+                category="assignments",
+            )
 
     return reassigned_users
 

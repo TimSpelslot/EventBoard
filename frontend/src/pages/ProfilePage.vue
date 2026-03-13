@@ -10,28 +10,8 @@
 <q-list class="q-gutter-sm">
   <q-item tag="label" v-ripple>
     <q-item-section>
-      <q-item-label>New Adventures</q-item-label>
-      <q-item-label caption>Alert me when a new game is posted</q-item-label>
-    </q-item-section>
-    <q-item-section side>
-      <q-toggle v-model="notify_new_adventure" color="primary" />
-    </q-item-section>
-  </q-item>
-
-  <q-item tag="label" v-ripple>
-    <q-item-section>
-      <q-item-label>Deadline Reminders</q-item-label>
-      <q-item-label caption>4-hour warning if I haven't signed up</q-item-label>
-    </q-item-section>
-    <q-item-section side>
-      <q-toggle v-model="notify_deadline" color="primary" />
-    </q-item-section>
-  </q-item>
-
-  <q-item tag="label" v-ripple>
-    <q-item-section>
-      <q-item-label>Party Assignments</q-item-label>
-      <q-item-label caption>Notify me when parties are finalized</q-item-label>
+      <q-item-label>Assignments and waiting list updates</q-item-label>
+      <q-item-label caption>Assignment release and waiting-list promotion updates</q-item-label>
     </q-item-section>
     <q-item-section side>
       <q-toggle v-model="notify_assignments" color="primary" />
@@ -40,8 +20,8 @@
 
   <q-item tag="label" v-ripple>
     <q-item-section>
-      <q-item-label>Create adventure reminder</q-item-label>
-      <q-item-label caption>Remind me X days before signup deadline to add an adventure</q-item-label>
+      <q-item-label>Admin reminders</q-item-label>
+      <q-item-label caption>Release reminders and new-event notifications (admins)</q-item-label>
     </q-item-section>
     <q-item-section side>
       <q-toggle v-model="notify_create_adventure_reminder" color="primary" />
@@ -76,8 +56,6 @@ export default defineComponent({
     }
     return {
       display_name: me?.display_name,
-      notify_new_adventure: me?.notify_new_adventure ?? true,
-      notify_deadline: me?.notify_deadline ?? true,
       notify_assignments: me?.notify_assignments ?? true,
       notify_create_adventure_reminder: me?.notify_create_adventure_reminder ?? false,
     };
@@ -86,8 +64,6 @@ export default defineComponent({
     async save() {
       await this.$api.patch('/api/users/' + this.me.id, {
         display_name: this.display_name,
-        notify_new_adventure: this.notify_new_adventure,
-        notify_deadline: this.notify_deadline,
         notify_assignments: this.notify_assignments,
         notify_create_adventure_reminder: this.notify_create_adventure_reminder,
       });

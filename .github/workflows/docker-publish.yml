@@ -75,6 +75,66 @@ jobs:
           cache-dependency-path: frontend/
       - run: npm ci
         working-directory: frontend/
+
+      - name: Generate Firebase messaging service worker from secrets
+        run: |
+          cat > frontend/public/firebase-messaging-sw.js <<EOF
+          importScripts('https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js');
+          importScripts('https://www.gstatic.com/firebasejs/9.0.0/firebase-messaging-compat.js');
+
+          firebase.initializeApp({
+            apiKey: "${FB_API_KEY}",
+            authDomain: "${FB_AUTH_DOMAIN}",
+            projectId: "${FB_PROJECT_ID}",
+            storageBucket: "${FB_STORAGE_BUCKET}",
+            messagingSenderId: "${FB_MESSAGING_SENDER_ID}",
+            appId: "${FB_APP_ID}",
+          });
+
+          const messaging = firebase.messaging();
+
+          messaging.onBackgroundMessage((payload) => {
+            const notificationTitle = payload.data.title || 'Adventure Board Update';
+            const notificationOptions = {
+              body: payload.data.body || '',
+              icon: '/spelslot-logo.png',
+              data: {
+                clickUrl: payload.data.click_action || '/'
+              }
+            };
+
+            self.registration.showNotification(notificationTitle, notificationOptions);
+          });
+
+          self.addEventListener('notificationclick', (event) => {
+            event.notification.close();
+
+            let targetUrl = event.notification.data?.clickUrl;
+            if (targetUrl === 'OPEN_APP' || !targetUrl) {
+              targetUrl = self.location.origin + '/#/';
+            }
+
+            event.waitUntil(
+              clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+                for (const client of windowClients) {
+                  if (client.url.includes(targetUrl) && 'focus' in client) {
+                    return client.focus();
+                  }
+                }
+                if (clients.openWindow) {
+                  return clients.openWindow(targetUrl);
+                }
+              })
+            );
+          });
+          EOF
+        env:
+          FB_API_KEY: ${{ secrets.FB_API_KEY }}
+          FB_AUTH_DOMAIN: ${{ secrets.FB_AUTH_DOMAIN }}
+          FB_PROJECT_ID: ${{ secrets.FB_PROJECT_ID }}
+          FB_STORAGE_BUCKET: ${{ secrets.FB_STORAGE_BUCKET }}
+          FB_MESSAGING_SENDER_ID: ${{ secrets.FB_MESSAGING_SENDER_ID }}
+          FB_APP_ID: ${{ secrets.FB_APP_ID }}
       - run: npm test
         working-directory: frontend/
       - run: npm run build
@@ -120,6 +180,19 @@ jobs:
         with:
           name: static-assets
           path: backend/app/static/
+
+      - name: Inject Firebase service account key for backend
+        if: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON_B64 != '' }}
+        run: |
+          mkdir -p backend/app/config
+          echo "${FIREBASE_SERVICE_ACCOUNT_JSON_B64}" | base64 -d > backend/app/config/serviceAccountKey.json
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON_B64: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON_B64 }}
+
+      - name: Warn if backend Firebase service account is missing
+        if: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON_B64 == '' }}
+        run: |
+          echo "::warning::FIREBASE_SERVICE_ACCOUNT_JSON_B64 secret is missing. Backend Firebase messaging will be disabled."
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3

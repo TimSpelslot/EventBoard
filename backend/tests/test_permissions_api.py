@@ -5,7 +5,7 @@ from app.provider import db
 from tests.conftest import login
 
 
-def _create_adventure_with_assignment(app):
+def _create_adventure_with_assignment(app, released=False):
     with app.app_context():
         approved = User.create(google_id="approved-user", name="Approved", privilege_level=1)
         other = User.create(google_id="other-user", name="Other", privilege_level=1)
@@ -18,9 +18,13 @@ def _create_adventure_with_assignment(app):
             date=date(2026, 3, 20),
             tags=None,
             is_waitinglist=0,
+            release_assignments=released,
             commit=False,
         )
-        db.session.add(Assignment(user_id=other.id, adventure_id=adventure.id))
+        assignment = Assignment()
+        assignment.user_id = other.id
+        assignment.adventure_id = adventure.id
+        db.session.add(assignment)
         db.session.commit()
 
         return adventure.id, approved.id
@@ -68,8 +72,52 @@ def test_adventure_list_hides_assignments_for_privilege_zero(client, app, normal
     assert "assignments" not in data[0]
 
 
+def test_adventure_list_shows_only_own_assignment_for_privilege_zero(client, app):
+    with app.app_context():
+        noob = User.create(google_id="noob-user", name="Noob", privilege_level=0)
+        approved = User.create(google_id="approved-owner", name="Approved Owner", privilege_level=1)
+        other = User.create(google_id="other-assigned", name="Other Assigned", privilege_level=1)
+
+        adventure = Adventure.create(
+            title="Own Placement Session",
+            short_description="Own assignment visibility",
+            user_id=approved.id,
+            max_players=5,
+            date=date(2026, 3, 20),
+            tags=None,
+            is_waitinglist=0,
+            release_assignments=True,
+            commit=False,
+        )
+        assignment_noob = Assignment()
+        assignment_noob.user_id = noob.id
+        assignment_noob.adventure_id = adventure.id
+        db.session.add(assignment_noob)
+
+        assignment_other = Assignment()
+        assignment_other.user_id = other.id
+        assignment_other.adventure_id = adventure.id
+        db.session.add(assignment_other)
+        db.session.commit()
+        noob_id = noob.id
+
+    login(client, noob_id)
+
+    response = client.get(
+        "/api/adventures?week_start=2026-03-16&week_end=2026-03-22",
+        base_url="https://localhost",
+    )
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert len(data) >= 1
+    assert "assignments" in data[0]
+    assert len(data[0]["assignments"]) == 1
+    assert data[0]["assignments"][0]["user"]["id"] == noob_id
+
+
 def test_adventure_list_shows_assignments_for_privilege_one(client, app):
-    _, approved_id = _create_adventure_with_assignment(app)
+    _, approved_id = _create_adventure_with_assignment(app, released=True)
     login(client, approved_id)
 
     response = client.get(
@@ -81,6 +129,21 @@ def test_adventure_list_shows_assignments_for_privilege_one(client, app):
     data = response.get_json()
     assert len(data) >= 1
     assert "assignments" in data[0]
+
+
+def test_adventure_list_hides_assignments_for_privilege_one_before_release(client, app):
+    _, approved_id = _create_adventure_with_assignment(app, released=False)
+    login(client, approved_id)
+
+    response = client.get(
+        "/api/adventures?week_start=2026-03-16&week_end=2026-03-22",
+        base_url="https://localhost",
+    )
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert len(data) >= 1
+    assert "assignments" not in data[0]
 
 
 def test_adventure_create_forbidden_for_privilege_zero(client, normal_user_id):

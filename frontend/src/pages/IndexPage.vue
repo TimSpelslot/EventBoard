@@ -19,6 +19,9 @@
         ><span class="gt-sm">{{ labels.later }}</span>
       </q-btn>
     </div>
+    <q-banner v-if="me" class="bg-info text-white q-mx-lg q-mb-md" rounded>
+      {{ labels.assignmentNotice }}
+    </q-banner>
     <div v-if="loading" class="column flex flex-center q-my-xl">
       <q-spinner size="xl" />
       <div class="text-h6 q-mt-md text-center">{{ labels.loading }}</div>
@@ -730,6 +733,8 @@ export default defineComponent({
           earlier: 'Eerder',
           later: 'Later',
           loading: 'Laden...',
+          assignmentNotice:
+            'Sta browsernotificaties toe om toewijzingen direct te ontvangen. Heb je nog geen melding? Kijk later nog eens terug. Kun je toch niet komen, annuleer dan je plek zodat iemand van de wachtlijst kan doorschuiven.',
           noSessions: 'Nog geen sessies deze week. Maak er een!',
           noDescription: 'Geen beschrijving',
           noPlayersAssigned: 'Nog geen spelers toegewezen',
@@ -757,6 +762,8 @@ export default defineComponent({
         earlier: 'Earlier',
         later: 'Later',
         loading: 'Loading...',
+        assignmentNotice:
+          'Allow browser notifications to receive assignment updates immediately. If you do not see an update yet, check back later. If you can no longer attend, cancel your assignment so someone from the waiting list can take your spot.',
         noSessions: 'No sessions this week yet. Make one!',
         noDescription: 'No description',
         noPlayersAssigned: 'No players assigned yet',

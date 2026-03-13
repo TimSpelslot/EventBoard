@@ -44,9 +44,7 @@ class User(UserMixin, db.Model):
     assignments         = db.relationship('Assignment', back_populates='user')
     event_types_created = db.relationship('EventType', back_populates='creator')
 
-    # Notification Toggles (Default to True)
-    notify_new_adventure = db.Column(db.Boolean, default=True)
-    notify_deadline = db.Column(db.Boolean, default=True)
+    # Notification toggles used by push categories.
     notify_assignments = db.Column(db.Boolean, default=True)
     notify_create_adventure_reminder = db.Column(db.Boolean, default=False)
 
@@ -92,6 +90,8 @@ class Adventure(db.Model):
     max_players         = db.Column(db.Integer, nullable=False, default=5)
     date                = db.Column(db.Date, nullable=False)
     tags                = db.Column(db.String(255), nullable=True)
+    release_assignments = db.Column(db.Boolean, nullable=False, default=False)
+    release_reminder_days = db.Column(db.Integer, nullable=False, default=2)
     is_waitinglist      = db.Column(db.Integer, nullable=False, default=0) # 0 = no, 1 = yes, 2 = was waitinglist
 
     creator         = db.relationship('User', back_populates='adventures_created')

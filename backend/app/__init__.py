@@ -10,7 +10,7 @@ import firebase_admin
 from firebase_admin import credentials
 
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from sqlalchemy import not_
 
 from .provider import db, ma, ap_scheduler, login_manager, google_oauth, mail, migrate
@@ -208,5 +208,36 @@ def create_app(config_file=None):
                     category="create_adventure_reminder",
                 )
             app.logger.info("--- Create adventure reminder done ---")
+
+    @ap_scheduler.task('cron', id='release_assignment_reminder', hour=config['TIMING'].get('release_reminder_hour', 9))
+    def cron_release_assignment_reminder():
+        with app.app_context():
+            today = date.today()
+            adventures = db.session.execute(
+                db.select(Adventure).where(
+                    Adventure.is_waitinglist == 0,
+                    Adventure.release_assignments.is_(False),
+                    Adventure.date >= today,
+                )
+            ).scalars().all()
+
+            due = [a for a in adventures if (a.date - today).days == int(a.release_reminder_days or 2)]
+            if not due:
+                return
+
+            admins = db.session.execute(
+                db.select(User).where(
+                    User.privilege_level >= 2,
+                    User.notify_create_adventure_reminder.is_(True),
+                )
+            ).scalars().all()
+
+            for admin in admins:
+                send_fcm_notification(
+                    admin,
+                    "Release reminder",
+                    f"{len(due)} event(s) are due for assignment release soon.",
+                    category="create_adventure_reminder",
+                )
 
     return app

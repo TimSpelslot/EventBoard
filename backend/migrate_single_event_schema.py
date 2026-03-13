@@ -15,7 +15,6 @@ USER_DROP_COLUMNS = [
 
 ADVENTURE_DROP_COLUMNS = [
     "requested_room",
-    "release_assignments",
     "num_sessions",
     "predecessor_id",
     "rank_combat",
@@ -210,6 +209,8 @@ def _migrate_sqlite() -> None:
                         max_players INTEGER NOT NULL DEFAULT 5,
                         date DATE NOT NULL,
                         tags VARCHAR(255),
+                        release_assignments BOOLEAN NOT NULL DEFAULT 0,
+                        release_reminder_days INTEGER NOT NULL DEFAULT 2,
                         is_waitinglist INTEGER NOT NULL DEFAULT 0,
                         FOREIGN KEY(user_id) REFERENCES users(id),
                         FOREIGN KEY(event_type_id) REFERENCES event_types(id)
@@ -222,7 +223,7 @@ def _migrate_sqlite() -> None:
                     """
                     INSERT INTO adventures (
                         id, title, short_description, user_id, event_type_id, max_players,
-                        date, tags, is_waitinglist
+                        date, tags, release_assignments, release_reminder_days, is_waitinglist
                     )
                     SELECT
                         id,
@@ -233,6 +234,8 @@ def _migrate_sqlite() -> None:
                         max_players,
                         date,
                         tags,
+                        COALESCE(release_assignments, 0),
+                        COALESCE(release_reminder_days, 2),
                         COALESCE(is_waitinglist, 0)
                     FROM adventures__old
                     """
@@ -280,6 +283,10 @@ def migrate_single_event_schema() -> None:
     adv_cols = {c["name"] for c in inspector.get_columns("adventures")} if _table_exists(inspector, "adventures") else set()
     if "event_type_id" not in adv_cols and _table_exists(inspector, "adventures"):
         conn.execute(text("ALTER TABLE adventures ADD COLUMN event_type_id INTEGER NULL"))
+    if "release_assignments" not in adv_cols and _table_exists(inspector, "adventures"):
+        conn.execute(text("ALTER TABLE adventures ADD COLUMN release_assignments BOOLEAN NOT NULL DEFAULT 0"))
+    if "release_reminder_days" not in adv_cols and _table_exists(inspector, "adventures"):
+        conn.execute(text("ALTER TABLE adventures ADD COLUMN release_reminder_days INTEGER NOT NULL DEFAULT 2"))
 
     inspector = inspect(db.engine)
     if _table_exists(inspector, "adventure_requested_players"):

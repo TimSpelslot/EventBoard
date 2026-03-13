@@ -142,8 +142,6 @@ class UserWithSignupsSchema(ma.SQLAlchemyAutoSchema):
 
 class UserPatchSchema(ma.Schema):
     display_name = ma.String(required=False)
-    notify_new_adventure = ma.Boolean(required=False)
-    notify_deadline = ma.Boolean(required=False)
     notify_assignments = ma.Boolean(required=False)
     notify_create_adventure_reminder = ma.Boolean(required=False)
     privilege_level = ma.Integer(required=False, validate=validate.OneOf([0, 1, 2]))
@@ -665,18 +663,42 @@ class AdventureIDlessRequest(MethodView):
 
             adventures = db.session.scalars(stmt).all()
 
-            # Player visibility: only approved users (privilege >= 1) and admins.
+            # Player visibility:
+            # - admins always see full assignments
+            # - before release, non-admin users see no assignments
+            # - after release, privilege >= 1 sees all; privilege 0 sees own only
+            # - anonymous users see no assignments
+            is_authenticated = current_user.is_authenticated
             user_is_admin = is_admin(current_user)
-            display_players = current_user.is_authenticated and current_user.privilege_level >= 1
+            display_all_players = is_authenticated and current_user.privilege_level >= 1
             exclude = []
             if not user_is_admin:
                 exclude = ["signups"]
-                pass
-            if not display_players:
+            if not is_authenticated:
                 exclude = exclude + ["assignments"]
-                pass
-            
-            return AdventureSchema(many=True, exclude=exclude).dump(adventures)
+
+            out = AdventureSchema(many=True, exclude=exclude).dump(adventures)
+
+            if is_authenticated and not user_is_admin:
+                for adv in out:
+                    if "assignments" not in adv:
+                        continue
+                    if not adv.get("release_assignments", False):
+                        adv.pop("assignments", None)
+                        continue
+                    if display_all_players:
+                        continue
+                    own_assignments = [
+                        assignment
+                        for assignment in adv["assignments"]
+                        if assignment.get("user", {}).get("id") == current_user.id
+                    ]
+                    if own_assignments:
+                        adv["assignments"] = own_assignments
+                    else:
+                        adv.pop("assignments", None)
+
+            return out
 
         except ValidationError as ve:
             abort(400, message=str(ve))
@@ -714,17 +736,7 @@ class AdventureIDlessRequest(MethodView):
             make_waiting_list_for_event(new_adv.event_type_id, new_adv.date)
 
             db.session.commit()
-            if current_app.config.get("FIREBASE_ENABLED", False):
-                all_tokens = [t.token for t in FCMToken.query.all()]
-                if all_tokens:
-                    message = messaging.MulticastMessage(
-                        notification=messaging.Notification(
-                            title="New Adventure Alert! ⚔️",
-                            body=f"{current_user.name} just posted: {new_adv.title}",
-                        ),
-                        tokens=all_tokens,
-                    )
-                    messaging.send_each_for_multicast(message)
+            notify_admins_new_adventure(new_adv, current_user)
             # Normal success: return the model instance (decorator will dump it)
             return new_adv
 
@@ -761,18 +773,42 @@ class AdventureResource(MethodView):
 
             adventures = db.session.scalars(stmt).all()
 
-            # Player visibility: only approved users (privilege >= 1) and admins.
+            # Player visibility:
+            # - admins always see full assignments
+            # - before release, non-admin users see no assignments
+            # - after release, privilege >= 1 sees all; privilege 0 sees own only
+            # - anonymous users see no assignments
+            is_authenticated = current_user.is_authenticated
             user_is_admin = is_admin(current_user)
-            display_players = current_user.is_authenticated and current_user.privilege_level >= 1
+            display_all_players = is_authenticated and current_user.privilege_level >= 1
             exclude = []
             if not user_is_admin:
                 exclude = ["signups"]
-                pass
-            if not display_players:
+            if not is_authenticated:
                 exclude = exclude + ["assignments"]
-                pass
-            
-            return AdventureSchema(many=True, exclude=exclude).dump(adventures)
+
+            out = AdventureSchema(many=True, exclude=exclude).dump(adventures)
+
+            if is_authenticated and not user_is_admin:
+                for adv in out:
+                    if "assignments" not in adv:
+                        continue
+                    if not adv.get("release_assignments", False):
+                        adv.pop("assignments", None)
+                        continue
+                    if display_all_players:
+                        continue
+                    own_assignments = [
+                        assignment
+                        for assignment in adv["assignments"]
+                        if assignment.get("user", {}).get("id") == current_user.id
+                    ]
+                    if own_assignments:
+                        adv["assignments"] = own_assignments
+                    else:
+                        adv.pop("assignments", None)
+
+            return out
 
         except ValidationError as ve:
             abort(400, message=str(ve))
@@ -908,6 +944,10 @@ class AssignmentResource(MethodView):
             assign_players_to_adventures(today) 
         elif action == "reassign":
             reassign_players_from_waiting_list(today)
+        elif action == "release":
+            release_assignments(today)
+        elif action == "reset":
+            reset_release(today)
         else:
             abort(400, message=f"Invalid action: {action}")
 
@@ -1263,7 +1303,8 @@ class TestAutomation(MethodView):
     def post(self, target):
         """
         Manually triggers one of the notification scenarios.
-        target can be: 'new_adventure', 'deadline', 'release', or 'create_adventure_reminder'
+        target can be: 'new_adventure', 'admin_reminder', 'release', or 'create_adventure_reminder'.
+        The legacy 'deadline' target is still accepted as an alias for 'admin_reminder'.
         """
         
         
@@ -1289,15 +1330,15 @@ class TestAutomation(MethodView):
                 messaging.send_each_for_multicast(message)
             return {"message": f"Sent 'New Adventure' to {len(tokens)} devices"}
 
-        elif target == "deadline":
-            # Test 2: Deadline Nudge (to you only)
+        elif target in ("admin_reminder", "deadline"):
+            # Test 2: Admin reminder (to you only, if subscribed)
             send_fcm_notification(
                 current_user, 
-                "The clock is ticking! ⏳", 
-                "TEST: You haven't signed up for any adventures next week.",
-                category="deadline"
+                "Create an adventure",
+                "TEST: Signup deadline is in a few days. Add an adventure so players can sign up!",
+                category="create_adventure_reminder",
             )
-            return {"message": "Sent 'Deadline Nudge' to your device"}
+            return {"message": "Sent 'Admin Reminder' to your device"}
 
         elif target == "release":
             # Test 3: Assignments Released (to you only)
