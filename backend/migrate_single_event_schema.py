@@ -38,6 +38,7 @@ def _ensure_event_types_table_sqlite(conn) -> None:
                 week_of_month INTEGER NOT NULL,
                 exclude_july_august BOOLEAN NOT NULL DEFAULT 0,
                 is_single_event BOOLEAN NOT NULL DEFAULT 0,
+                default_release_reminder_days INTEGER NOT NULL DEFAULT 2,
                 is_active BOOLEAN NOT NULL DEFAULT 1,
                 sort_order INTEGER NOT NULL DEFAULT 0,
                 created_by_user_id INTEGER,
@@ -63,6 +64,7 @@ def _ensure_event_types_table_non_sqlite(conn, dialect: str) -> None:
                     week_of_month INTEGER NOT NULL,
                     exclude_july_august BOOLEAN NOT NULL DEFAULT FALSE,
                     is_single_event BOOLEAN NOT NULL DEFAULT FALSE,
+                    default_release_reminder_days INTEGER NOT NULL DEFAULT 2,
                     is_active BOOLEAN NOT NULL DEFAULT TRUE,
                     sort_order INTEGER NOT NULL DEFAULT 0,
                     created_by_user_id INTEGER REFERENCES users(id),
@@ -84,6 +86,7 @@ def _ensure_event_types_table_non_sqlite(conn, dialect: str) -> None:
                     week_of_month INTEGER NOT NULL,
                     exclude_july_august BOOLEAN NOT NULL DEFAULT 0,
                     is_single_event BOOLEAN NOT NULL DEFAULT 0,
+                    default_release_reminder_days INTEGER NOT NULL DEFAULT 2,
                     is_active BOOLEAN NOT NULL DEFAULT 1,
                     sort_order INTEGER NOT NULL DEFAULT 0,
                     created_by_user_id INTEGER NULL,
@@ -273,6 +276,12 @@ def migrate_single_event_schema() -> None:
             conn.execute(
                 text(
                     f"ALTER TABLE event_types ADD COLUMN is_single_event BOOLEAN NOT NULL DEFAULT {default_clause}"
+                )
+            )
+        if "default_release_reminder_days" not in et_cols:
+            conn.execute(
+                text(
+                    "ALTER TABLE event_types ADD COLUMN default_release_reminder_days INTEGER NOT NULL DEFAULT 2"
                 )
             )
 

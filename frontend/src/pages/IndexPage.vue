@@ -18,13 +18,6 @@
         @click="switchWeek(1)"
         ><span class="gt-sm">{{ labels.later }}</span>
       </q-btn>
-      <q-toggle
-        v-if="canViewArchive"
-        v-model="archiveMode"
-        class="q-ml-md"
-        color="accent"
-        :label="labels.archiveToggle"
-      />
     </div>
     <q-banner v-if="me" class="bg-info text-white q-mx-lg q-mb-md" rounded>
       {{ labels.assignmentNotice }}
@@ -461,7 +454,6 @@ export default defineComponent({
   },
   data() {
     const queryDate = (((this as any).$route?.query?.date as string) || '');
-    const archiveQuery = (((this as any).$route?.query?.archive as string) || '');
     const baseDate = /^\d{4}-\d{2}-\d{2}$/.test(queryDate)
       ? fromDateString(queryDate)
       : new Date();
@@ -481,7 +473,6 @@ export default defineComponent({
       eventTypeTitle: '',
       selectedDate: queryDate,
       selectedEventType: null as any,
-      archiveMode: archiveQuery === '1',
     };
   },
   methods: {
@@ -577,9 +568,7 @@ export default defineComponent({
             '&week_end=' +
             this.weekEnd +
             '&event_type_id=' +
-            this.eventTypeId +
-            '&include_archive=' +
-            (this.canViewArchive && this.archiveMode ? '1' : '0')
+            this.eventTypeId
         );
         if (this.me && reloadSignups) {
           const resp = await this.$api.get('/api/signups?user=' + this.me.id);
@@ -640,7 +629,6 @@ export default defineComponent({
         query: {
           ...this.$route.query,
           date: this.selectedDate,
-          archive: this.archiveMode ? '1' : '0',
         },
       });
     },
@@ -740,11 +728,8 @@ export default defineComponent({
       }
       return true;
     },
-    canViewArchive(): boolean {
-      return Boolean(this.me && this.me.privilege_level >= 1);
-    },
     canGoEarlier(): boolean {
-      if (this.archiveMode || this.canViewArchive) {
+      if (this.me && this.me.privilege_level >= 1) {
         return true;
       }
       const today = new Date();
@@ -761,7 +746,6 @@ export default defineComponent({
           loading: 'Laden...',
           assignmentNotice:
             'Sta browsernotificaties toe om toewijzingen direct te ontvangen. Heb je nog geen melding? Kijk later nog eens terug. Kun je toch niet komen, annuleer dan je plek zodat iemand van de wachtlijst kan doorschuiven.',
-          archiveToggle: 'Archief',
           noSessions: 'Nog geen sessies deze week. Maak er een!',
           noDescription: 'Geen beschrijving',
           noPlayersAssigned: 'Nog geen spelers toegewezen',
@@ -791,7 +775,6 @@ export default defineComponent({
         loading: 'Loading...',
         assignmentNotice:
           'Allow browser notifications to receive assignment updates immediately. If you do not see an update yet, check back later. If you can no longer attend, cancel your assignment so someone from the waiting list can take your spot.',
-        archiveToggle: 'Archive',
         noSessions: 'No sessions this week yet. Make one!',
         noDescription: 'No description',
         noPlayersAssigned: 'No players assigned yet',
@@ -846,21 +829,6 @@ export default defineComponent({
         this.weekStart = toLocalDateString(monday);
       },
       immediate: true,
-    },
-    '$route.query.archive': {
-      handler(archive: string | undefined) {
-        this.archiveMode = archive === '1';
-      },
-      immediate: true,
-    },
-    archiveMode() {
-      this.fetch(false);
-      this.$router.replace({
-        query: {
-          ...this.$route.query,
-          archive: this.archiveMode ? '1' : '0',
-        },
-      });
     },
     weekStart: {
       async handler() {

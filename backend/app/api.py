@@ -262,6 +262,7 @@ class EventTypesResource(MethodView):
                 "week_of_month": et.week_of_month,
                 "exclude_july_august": et.exclude_july_august,
                 "is_single_event": et.is_single_event,
+                "default_release_reminder_days": et.default_release_reminder_days,
                 "is_active": et.is_active,
                 "sort_order": et.sort_order,
                 "next_date": next_date.isoformat(),
@@ -292,6 +293,7 @@ class EventTypesResource(MethodView):
             "week_of_month": event_type.week_of_month,
             "exclude_july_august": event_type.exclude_july_august,
             "is_single_event": event_type.is_single_event,
+            "default_release_reminder_days": event_type.default_release_reminder_days,
             "is_active": event_type.is_active,
             "sort_order": event_type.sort_order,
             "next_date": next_date.isoformat(),
@@ -312,6 +314,18 @@ class EventTypeResource(MethodView):
         for key, value in args.items():
             setattr(event_type, key, value)
 
+        if "default_release_reminder_days" in args:
+            db.session.execute(
+                db.update(Adventure)
+                .where(
+                    Adventure.event_type_id == event_type.id,
+                    Adventure.date >= date.today(),
+                    Adventure.is_waitinglist == 0,
+                    Adventure.release_assignments.is_(False),
+                )
+                .values(release_reminder_days=event_type.default_release_reminder_days)
+            )
+
         db.session.commit()
 
         next_date = get_next_date_for_event_type(event_type)
@@ -324,10 +338,68 @@ class EventTypeResource(MethodView):
             "week_of_month": event_type.week_of_month,
             "exclude_july_august": event_type.exclude_july_august,
             "is_single_event": event_type.is_single_event,
+            "default_release_reminder_days": event_type.default_release_reminder_days,
             "is_active": event_type.is_active,
             "sort_order": event_type.sort_order,
             "next_date": next_date.isoformat(),
         }
+
+    @login_required
+    @blp_event_types.response(200, MessageSchema)
+    def delete(self, event_type_id):
+        if not is_admin(current_user):
+            abort(401, message="Unauthorized")
+
+        notify_mode = (request.args.get("notify_mode") or "none").strip().lower()
+        if notify_mode not in {"none", "removed", "cancelled"}:
+            abort(400, message="Invalid notify_mode. Use none, removed, or cancelled.")
+
+        event_type = db.get_or_404(EventType, event_type_id)
+
+        future_adventures = db.session.execute(
+            db.select(Adventure).where(
+                Adventure.event_type_id == event_type_id,
+                Adventure.date >= date.today(),
+            )
+        ).scalars().all()
+        adventure_ids = [a.id for a in future_adventures]
+
+        notify_users: list[User] = []
+        if notify_mode != "none" and adventure_ids:
+            signup_users = db.session.execute(
+                db.select(User)
+                .join(Signup, Signup.user_id == User.id)
+                .where(Signup.adventure_id.in_(adventure_ids))
+            ).scalars().all()
+            assignment_users = db.session.execute(
+                db.select(User)
+                .join(Assignment, Assignment.user_id == User.id)
+                .where(Assignment.adventure_id.in_(adventure_ids))
+            ).scalars().all()
+            seen = set()
+            for u in [*signup_users, *assignment_users]:
+                if u.id in seen:
+                    continue
+                seen.add(u.id)
+                notify_users.append(u)
+
+        if adventure_ids:
+            db.session.execute(db.delete(Signup).where(Signup.adventure_id.in_(adventure_ids)))
+            db.session.execute(db.delete(Assignment).where(Assignment.adventure_id.in_(adventure_ids)))
+            db.session.execute(db.delete(Adventure).where(Adventure.id.in_(adventure_ids)))
+
+        event_type.is_active = False
+        db.session.commit()
+
+        if notify_users:
+            if notify_mode == "cancelled":
+                body = f"{event_type.title} has been cancelled."
+            else:
+                body = f"{event_type.title} was removed and may be set up again."
+            for u in notify_users:
+                send_fcm_notification(u, "Event update", body, category="assignments")
+
+        return {"message": f"Event type {event_type.title} deleted successfully."}
 
 # --- UTILS ---
 
@@ -740,6 +812,13 @@ class AdventureIDlessRequest(MethodView):
             abort(401, message="Only staff members or admins can create sessions.")
 
         try: 
+            if "release_reminder_days" not in args:
+                event_type_id = args.get("event_type_id")
+                if event_type_id:
+                    event_type = db.session.get(EventType, event_type_id)
+                    if event_type:
+                        args["release_reminder_days"] = event_type.default_release_reminder_days
+
             new_adv = Adventure.create(
                 user_id=current_user.id,
                 **args

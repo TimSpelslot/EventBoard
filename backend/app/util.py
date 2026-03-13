@@ -53,6 +53,15 @@ def ensure_event_type_schema_compat():
                         "ALTER TABLE event_types ADD COLUMN is_single_event BOOLEAN NOT NULL DEFAULT 0"
                     )
                 )
+            if "default_release_reminder_days" not in event_type_cols:
+                current_app.logger.warning(
+                    "Schema compat: missing event_types.default_release_reminder_days, applying ALTER TABLE."
+                )
+                conn.execute(
+                    text(
+                        "ALTER TABLE event_types ADD COLUMN default_release_reminder_days INTEGER NOT NULL DEFAULT 2"
+                    )
+                )
 
         db.session.commit()
     except Exception as exc:

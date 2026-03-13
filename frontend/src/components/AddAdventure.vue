@@ -30,13 +30,6 @@
             :rules="[(val) => !!val || 'Field is required']"
           />
           <DatePicker v-if="showDateInput" v-model="date" label="Date" />
-          <q-select
-            v-model.number="release_reminder_days"
-            :options="releaseReminderOptions"
-            emit-value
-            map-options
-            label="Release reminder"
-          />
           <q-input
             v-model="tags"
             label="Tags"
@@ -98,21 +91,11 @@ export default defineComponent({
       short_description: this.editExisting?.short_description || '',
       max_players: this.editExisting?.max_players || 5,
       date: this.editExisting?.date || this.defaultDate || '',
-      release_reminder_days: this.editExisting?.release_reminder_days ?? 2,
       tags: this.editExisting?.tags || null,
-      releaseReminderOptions: [
-        { label: '24 hours before', value: 1 },
-        { label: '2 days before', value: 2 },
-        { label: '3 days before', value: 3 },
-        { label: '1 week before', value: 7 },
-      ],
     };
   },
   computed: {
     showDateInput() {
-      if (this.editExisting) {
-        return true;
-      }
       return !this.isSingleEvent;
     },
     filledIn() {
@@ -126,7 +109,6 @@ export default defineComponent({
         short_description: this.short_description,
         max_players: this.max_players,
         date: this.isSingleEvent && !this.editExisting ? this.defaultDate : this.date,
-        release_reminder_days: this.release_reminder_days,
         event_type_id: this.eventTypeId,
         tags: this.tags,
       } as any;

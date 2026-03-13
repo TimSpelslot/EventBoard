@@ -80,9 +80,24 @@
             :label="dialogLabels.weekday"
           />
           <q-toggle v-model="form.exclude_july_august" :label="dialogLabels.excludeJulyAugust" />
+          <q-select
+            v-model.number="form.default_release_reminder_days"
+            :options="releaseReminderOptions"
+            emit-value
+            map-options
+            :label="dialogLabels.releaseReminder"
+          />
           <q-input v-model.number="form.sort_order" :label="dialogLabels.sortOrder" type="number" />
         </q-card-section>
         <q-card-actions align="right">
+          <q-btn
+            v-if="editingEventId"
+            flat
+            color="negative"
+            :label="dialogLabels.delete"
+            @click="deleteEventType"
+          />
+          <q-space />
           <q-btn flat :label="dialogLabels.cancel" v-close-popup />
           <q-btn color="primary" :label="dialogLabels.save" @click="saveEventType" />
         </q-card-actions>
@@ -117,6 +132,12 @@ export default defineComponent({
         { label: 'Fourth', value: 4 },
         { label: 'Fifth', value: 5 },
       ],
+      releaseReminderOptions: [
+        { label: '24 hours before', value: 1 },
+        { label: '2 days before', value: 2 },
+        { label: '3 days before', value: 3 },
+        { label: '1 week before', value: 7 },
+      ],
     };
   },
   data() {
@@ -135,6 +156,7 @@ export default defineComponent({
         exclude_july_august: false,
         is_single_event: false,
         single_date: '',
+        default_release_reminder_days: 2,
         sort_order: 10,
         is_active: true,
       },
@@ -159,11 +181,14 @@ export default defineComponent({
           excludeJulyAugust: 'Juli en augustus uitsluiten',
           singleEvent: 'Eenmalig evenement (geen weeknavigatie)',
           singleEventDate: 'Datum (eenmalig evenement)',
+          releaseReminder: 'Vrijgave-herinnering',
           sortOrder: 'Sorteervolgorde',
+          delete: 'Verwijderen',
           cancel: 'Annuleren',
           save: 'Opslaan',
           updatedMessage: 'Evenementtype bijgewerkt',
           createdMessage: 'Evenementtype aangemaakt',
+          deletedMessage: 'Evenementtype verwijderd',
           weekdays: {
             0: 'Maandag',
             1: 'Dinsdag',
@@ -192,11 +217,14 @@ export default defineComponent({
         excludeJulyAugust: 'Exclude July & August',
         singleEvent: 'Single event (no week navigation)',
         singleEventDate: 'Date (single event)',
+        releaseReminder: 'Release reminder',
         sortOrder: 'Sort order',
+        delete: 'Delete',
         cancel: 'Cancel',
         save: 'Save',
         updatedMessage: 'Event type updated',
         createdMessage: 'Event type created',
+        deletedMessage: 'Event type deleted',
         weekdays: {
           0: 'Monday',
           1: 'Tuesday',
@@ -276,6 +304,7 @@ export default defineComponent({
         exclude_july_august: false,
         is_single_event: false,
         single_date: '',
+        default_release_reminder_days: 2,
         sort_order: 10,
         is_active: true,
       };
@@ -298,6 +327,7 @@ export default defineComponent({
         exclude_july_august: eventType.exclude_july_august,
         is_single_event: Boolean(eventType.is_single_event),
         single_date: Boolean(eventType.is_single_event) ? (eventType.next_date || '') : '',
+        default_release_reminder_days: eventType.default_release_reminder_days ?? 2,
         sort_order: eventType.sort_order,
         is_active: eventType.is_active,
       };
@@ -351,6 +381,37 @@ export default defineComponent({
       this.editingIsDutch = false;
       this.resetForm();
       await this.fetchEventTypes();
+    },
+    async deleteEventType() {
+      if (!this.editingEventId) {
+        return;
+      }
+
+      this.$q.dialog({
+        title: 'Delete event type',
+        message: 'Do you want to notify affected users for future sessions?',
+        options: {
+          type: 'radio',
+          model: 'none',
+          items: [
+            { label: 'No notification', value: 'none' },
+            { label: 'Removed (might be set up again)', value: 'removed' },
+            { label: 'Cancelled', value: 'cancelled' },
+          ],
+        },
+        cancel: true,
+        persistent: true,
+      }).onOk(async (notifyMode: string) => {
+        await this.$api.delete(`/api/event-types/${this.editingEventId}`, {
+          params: { notify_mode: notifyMode || 'none' },
+        });
+        this.$q.notify({ type: 'positive', message: this.dialogLabels.deletedMessage });
+        this.showDialog = false;
+        this.editingEventId = null;
+        this.editingIsDutch = false;
+        this.resetForm();
+        await this.fetchEventTypes();
+      });
     },
   },
 });

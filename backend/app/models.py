@@ -145,6 +145,7 @@ class EventType(db.Model):
     week_of_month = db.Column(db.Integer, nullable=False)  # 1..5
     exclude_july_august = db.Column(db.Boolean, nullable=False, default=False)
     is_single_event = db.Column(db.Boolean, nullable=False, default=False)
+    default_release_reminder_days = db.Column(db.Integer, nullable=False, default=2)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     sort_order = db.Column(db.Integer, nullable=False, default=0)
     created_by_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
