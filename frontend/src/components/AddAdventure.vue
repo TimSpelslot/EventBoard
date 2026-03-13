@@ -29,7 +29,7 @@
             :max="30"
             :rules="[(val) => !!val || 'Field is required']"
           />
-          <DatePicker v-model="date" label="Date" />
+          <DatePicker v-if="showDateInput" v-model="date" label="Date" />
           <q-select
             v-model.number="release_reminder_days"
             :options="releaseReminderOptions"
@@ -86,6 +86,11 @@ export default defineComponent({
       type: String,
       required: false,
     },
+    isSingleEvent: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
   },
   data() {
     return {
@@ -104,6 +109,12 @@ export default defineComponent({
     };
   },
   computed: {
+    showDateInput() {
+      if (this.editExisting) {
+        return true;
+      }
+      return !this.isSingleEvent;
+    },
     filledIn() {
       return this.title != '' || this.short_description != '';
     },
@@ -114,7 +125,7 @@ export default defineComponent({
         title: this.title,
         short_description: this.short_description,
         max_players: this.max_players,
-        date: this.date,
+        date: this.isSingleEvent && !this.editExisting ? this.defaultDate : this.date,
         release_reminder_days: this.release_reminder_days,
         event_type_id: this.eventTypeId,
         tags: this.tags,
@@ -131,6 +142,11 @@ export default defineComponent({
       this.$emit('eventChange');
     },
     confirmDeletion() {
+      const adventureDate = this.editExisting!.date;
+      const today = new Date();
+      const sessionDate = new Date(`${adventureDate}T00:00:00`);
+      const isFutureOrToday = sessionDate >= new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
       this.$q
         .dialog({
           title: 'Delete',
@@ -141,12 +157,39 @@ export default defineComponent({
           cancel: true,
         })
         .onOk(async () => {
-          await this.$api.delete('/api/adventures/' + this.editExisting!.id);
-          this.$q.notify({
-            message: "And.. it's gone",
-            type: 'positive',
+          const runDelete = async (notifyMode: string) => {
+            await this.$api.delete('/api/adventures/' + this.editExisting!.id, {
+              params: { notify_mode: notifyMode },
+            });
+            this.$q.notify({
+              message: "And.. it's gone",
+              type: 'positive',
+            });
+            this.$emit('eventChange');
+          };
+
+          if (!isFutureOrToday) {
+            await runDelete('none');
+            return;
+          }
+
+          this.$q.dialog({
+            title: 'Notify players?',
+            message: 'Choose what to communicate to signed-up/assigned players.',
+            options: {
+              type: 'radio',
+              model: 'none',
+              items: [
+                { label: 'No notification', value: 'none' },
+                { label: 'Removed (might be set up again)', value: 'removed' },
+                { label: 'Cancelled', value: 'cancelled' },
+              ],
+            },
+            cancel: true,
+            persistent: true,
+          }).onOk(async (notifyMode: string) => {
+            await runDelete(notifyMode || 'none');
           });
-          this.$emit('eventChange');
         });
     },
   },

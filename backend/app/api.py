@@ -1,5 +1,5 @@
 from flask_smorest import Blueprint, abort
-from marshmallow import validates_schema, ValidationError, validate
+from marshmallow import validates_schema, ValidationError, validate, fields
 from flask_login import (
     current_user,
     login_required,
@@ -15,11 +15,12 @@ from flask import (
     jsonify, 
     g 
     )
-from sqlalchemy import text, delete
+from sqlalchemy import text, delete, func
 from sqlalchemy.orm import joinedload
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError, MultipleResultsFound
 import json
 import requests
+from typing import Any, cast
 
 from .models import db, User, Adventure, Assignment, FCMToken, EventType
 from .util import *
@@ -47,32 +48,32 @@ api_blueprints = [blp_utils, blp_users, blp_event_types, blp_adventures, blp_ass
 # ----------------------- Schemas ---------------------------------
 
 class AliveSchema(ma.Schema):
-    status = ma.String()
-    db = ma.String()
-    version = ma.String()
+    status = fields.String()
+    db = fields.String()
+    version = fields.String()
 
 class RedirectSchema(ma.Schema):
-    redirect_url = ma.Url(required=True)
+    redirect_url = fields.Url(required=True)
 
 class MessageSchema(ma.Schema):
-    message = ma.String(required=True)
+    message = fields.String(required=True)
 
 class AdminActionSchema(ma.Schema):
-    action = ma.String(required=True)
-    date = ma.Date(allow_none=True, required=False)
+    action = fields.String(required=True)
+    date = fields.Date(allow_none=True, required=False)
 
 class DateSchema(ma.Schema):
-    date = ma.Date(allow_none=True)
+    date = fields.Date(allow_none=True)
 
 class JobSchema(ma.Schema):
-    id = ma.Str(required=True)
-    name = ma.Str(required=True)
-    next_run_time = ma.DateTime(allow_none=True, required=False)
-    trigger = ma.Str(required=True)
+    id = fields.Str(required=True)
+    name = fields.Str(required=True)
+    next_run_time = fields.DateTime(allow_none=True, required=False)
+    trigger = fields.Str(required=True)
 
 class SiteMapLinkSchema(ma.Schema):
-    url = ma.Url(required=True)
-    endpoint = ma.Str(required=True)
+    url = fields.Url(required=True)
+    endpoint = fields.Str(required=True)
 
 class UserSchema(ma.SQLAlchemyAutoSchema):
     """Schema for User that excludes the `name` column and exposes
@@ -99,7 +100,7 @@ class SignupUserSchema(ma.SQLAlchemyAutoSchema):
         sqla_session = db.session
         exclude = ("id", "user_id", "adventure_date")
 
-    user = ma.Nested(UserSchema, dump_only=True)
+    user = fields.Nested(UserSchema, dump_only=True)
 
 class AdventureSmallSchema(ma.SQLAlchemyAutoSchema):
     """Auto-schema for Adventure used for both output (dump) and input (load). Without any references
@@ -119,7 +120,7 @@ class SignupAdventureSchema(ma.SQLAlchemyAutoSchema):
         sqla_session = db.session
         exclude = ("id", "user_id", "adventure_date")
 
-    adventure = ma.Nested(AdventureSmallSchema, dump_only=True)
+    adventure = fields.Nested(AdventureSmallSchema, dump_only=True)
 
 class UserWithSignupsSchema(ma.SQLAlchemyAutoSchema):
     """Schema for User that excludes the `name` column and exposes
@@ -129,7 +130,7 @@ class UserWithSignupsSchema(ma.SQLAlchemyAutoSchema):
     need to show or hide additional fields (email, google_id, etc.) consider
     adding parameters when using this schema.
     """
-    signups = ma.Nested(SignupAdventureSchema, many=True, dump_only=True)
+    signups = fields.Nested(SignupAdventureSchema, many=True, dump_only=True)
 
     class Meta:
         model = User
@@ -141,16 +142,17 @@ class UserWithSignupsSchema(ma.SQLAlchemyAutoSchema):
 
 
 class UserPatchSchema(ma.Schema):
-    display_name = ma.String(required=False)
-    notify_assignments = ma.Boolean(required=False)
-    notify_create_adventure_reminder = ma.Boolean(required=False)
-    privilege_level = ma.Integer(required=False, validate=validate.OneOf([0, 1, 2]))
+    display_name = fields.String(required=False)
+    notify_assignments = fields.Boolean(required=False)
+    notify_create_adventure_reminder = fields.Boolean(required=False)
+    privilege_level = fields.Integer(required=False, validate=validate.OneOf([0, 1, 2]))
 
 class AdventureQuerySchema(ma.Schema):
-    adventure_id = ma.Integer(allow_none=True)
-    week_start = ma.Date(allow_none=True)
-    week_end = ma.Date(allow_none=True)
-    event_type_id = ma.Integer(allow_none=True)
+    adventure_id = fields.Integer(allow_none=True)
+    week_start = fields.Date(allow_none=True)
+    week_end = fields.Date(allow_none=True)
+    event_type_id = fields.Integer(allow_none=True)
+    include_archive = fields.Boolean(allow_none=True)
 
     @validates_schema
     def validate_dates(self, data, **kwargs):
@@ -165,21 +167,21 @@ class AssignmentSchema(ma.SQLAlchemyAutoSchema):
         include_fk = True
         exclude = ("adventure_id","preference_place","user_id")
 
-    user = ma.Nested(UserSchema, dump_only=True)
+    user = fields.Nested(UserSchema, dump_only=True)
 
 class AssignmentMoveSchema(ma.Schema):
-    player_id = ma.Integer(required=True)
-    from_adventure_id = ma.Integer(required=True)
-    to_adventure_id = ma.Integer(required=True)
+    player_id = fields.Integer(required=True)
+    from_adventure_id = fields.Integer(required=True)
+    to_adventure_id = fields.Integer(required=True)
 
 class AssignmentUpdateSchema(ma.Schema):
-    user_id = ma.Integer(required=True)
-    adventure_id = ma.Integer(required=True)
-    appeared = ma.Boolean(required=True)
+    user_id = fields.Integer(required=True)
+    adventure_id = fields.Integer(required=True)
+    appeared = fields.Boolean(required=True)
 
 class AssignmentDeleteSchema(ma.Schema):
-    adventure_id = ma.Integer(required=True)
-    user_id = ma.Integer(required=False)  # Optional: for admins to specify which user's assignment to delete
+    adventure_id = fields.Integer(required=True)
+    user_id = fields.Integer(required=False)  # Optional: for admins to specify which user's assignment to delete
 
 
 class AdventureSchema(ma.SQLAlchemyAutoSchema):
@@ -191,13 +193,13 @@ class AdventureSchema(ma.SQLAlchemyAutoSchema):
     """
 
     # assignments -> nested users (dump only)
-    assignments = ma.List(ma.Nested(AssignmentSchema), dump_only=True)
+    assignments = fields.List(fields.Nested(AssignmentSchema), dump_only=True)
 
     # signups -> nested users (dump only)
-    signups = ma.List(ma.Nested(SignupUserSchema), dump_only=True)
+    signups = fields.List(fields.Nested(SignupUserSchema), dump_only=True)
 
     # allow creator to be set during creation
-    creator = ma.Nested(UserSchema, dump_only=True)
+    creator = fields.Nested(UserSchema, dump_only=True)
 
     class Meta:
         model = Adventure
@@ -218,9 +220,9 @@ class AdventureSchema(ma.SQLAlchemyAutoSchema):
 
 
 class ConflictResponseSchema(ma.Schema):
-    message = ma.Str(required=True)
-    mis_assignments = ma.List(ma.Integer(), required=True)
-    adventure = ma.Nested(AdventureSchema)
+    message = fields.Str(required=True)
+    mis_assignments = fields.List(fields.Integer(), required=True)
+    adventure = fields.Nested(AdventureSchema)
 
 
 class EventTypeSchema(ma.SQLAlchemyAutoSchema):
@@ -233,7 +235,7 @@ class EventTypeSchema(ma.SQLAlchemyAutoSchema):
 
 
 class EventTypeResponseSchema(EventTypeSchema):
-    next_date = ma.String(dump_only=True)
+    next_date = fields.String(dump_only=True)
 
 # ----------------------- Routes ----------------------------------
 
@@ -273,10 +275,10 @@ class EventTypesResource(MethodView):
         if not is_admin(current_user):
             abort(401, message="Unauthorized")
 
-        event_type = EventType(
-            **args,
-            created_by_user_id=current_user.id,
-        )
+        event_type = EventType()
+        for key, value in args.items():
+            setattr(event_type, key, value)
+        event_type.created_by_user_id = current_user.id
         db.session.add(event_type)
         db.session.commit()
 
@@ -363,7 +365,8 @@ class SiteMapResource(MethodView):
         for rule in current_app.url_map.iter_rules():
             # Filter out rules we can't navigate to in a browser
             # and rules that require parameters
-            if "GET" in rule.methods and has_no_empty_params(rule):
+            methods = rule.methods or set()
+            if "GET" in methods and has_no_empty_params(rule):
                 url = url_for(rule.endpoint, **(rule.defaults or {}))
                 links.append((url, rule.endpoint))
         # links is now a list of url, endpoint tuples
@@ -645,6 +648,13 @@ class AdventureIDlessRequest(MethodView):
             week_start = args.get("week_start")
             week_end = args.get("week_end")
             event_type_id = args.get("event_type_id")
+            include_archive = bool(args.get("include_archive"))
+            is_authenticated = current_user.is_authenticated
+            is_staff = is_authenticated and current_user.privilege_level >= 1
+
+            if include_archive and not is_staff:
+                abort(401, message="Only staff members and admins can view the archive.")
+            today = date.today()
 
             # Eager-load assignments -> user to avoid N+1 queries
             stmt = db.select(Adventure).options(
@@ -653,22 +663,26 @@ class AdventureIDlessRequest(MethodView):
 
 
             if week_start and week_end:
-                stmt = db.select(Adventure).where(
+                stmt = stmt.where(
                     Adventure.date <= week_end,
-                    Adventure.date >= week_start
+                    Adventure.date >= week_start,
                 )
+
+            if include_archive:
+                stmt = stmt.where(Adventure.date < today)
+            else:
+                stmt = stmt.where(Adventure.date >= today)
 
             if event_type_id:
                 stmt = stmt.where(Adventure.event_type_id == event_type_id)
 
-            adventures = db.session.scalars(stmt).all()
+            adventures = db.session.execute(stmt).unique().scalars().all()
 
             # Player visibility:
             # - admins always see full assignments
             # - before release, non-admin users see no assignments
             # - after release, privilege >= 1 sees all; privilege 0 sees own only
             # - anonymous users see no assignments
-            is_authenticated = current_user.is_authenticated
             user_is_admin = is_admin(current_user)
             display_all_players = is_authenticated and current_user.privilege_level >= 1
             exclude = []
@@ -677,7 +691,7 @@ class AdventureIDlessRequest(MethodView):
             if not is_authenticated:
                 exclude = exclude + ["assignments"]
 
-            out = AdventureSchema(many=True, exclude=exclude).dump(adventures)
+            out = cast(list[dict[str, Any]], AdventureSchema(many=True, exclude=exclude).dump(adventures))
 
             if is_authenticated and not user_is_admin:
                 for adv in out:
@@ -723,7 +737,7 @@ class AdventureIDlessRequest(MethodView):
         Create a new adventure
         """
         if not current_user.is_authenticated or current_user.privilege_level < 1:
-            abort(401, message="Only approved users or admins can create sessions.")
+            abort(401, message="Only staff members or admins can create sessions.")
 
         try: 
             new_adv = Adventure.create(
@@ -736,7 +750,9 @@ class AdventureIDlessRequest(MethodView):
             make_waiting_list_for_event(new_adv.event_type_id, new_adv.date)
 
             db.session.commit()
-            notify_admins_new_adventure(new_adv, current_user)
+            creator = db.session.get(User, current_user.id)
+            if creator:
+                notify_admins_new_adventure(new_adv, creator)
             # Normal success: return the model instance (decorator will dump it)
             return new_adv
 
@@ -787,7 +803,7 @@ class AdventureResource(MethodView):
             if not is_authenticated:
                 exclude = exclude + ["assignments"]
 
-            out = AdventureSchema(many=True, exclude=exclude).dump(adventures)
+            out = cast(list[dict[str, Any]], AdventureSchema(many=True, exclude=exclude).dump(adventures))
 
             if is_authenticated and not user_is_admin:
                 for adv in out:
@@ -863,6 +879,9 @@ class AdventureResource(MethodView):
         Deletes an adventure with the given ID. Only creator or admin can delete.
         """
         user_id = current_user.id
+        notify_mode = (request.args.get("notify_mode") or "none").strip().lower()
+        if notify_mode not in {"none", "removed", "cancelled"}:
+            abort(400, message={"error": "Invalid notify_mode. Use none, removed, or cancelled."})
 
         if not adventure_id:
             abort(400, message={'error': 'Missing adventure_id'})
@@ -875,6 +894,25 @@ class AdventureResource(MethodView):
             # Check permission: admin or creator
             if not is_admin(current_user) and adventure.user_id != user_id:
                 abort(401, message={'error': 'Unauthorized to delete this adventure'})
+
+            notify_users = []
+            if adventure.date >= date.today() and notify_mode != "none":
+                signup_users = db.session.execute(
+                    db.select(User)
+                    .join(Signup, Signup.user_id == User.id)
+                    .where(Signup.adventure_id == adventure_id)
+                ).scalars().all()
+                assignment_users = db.session.execute(
+                    db.select(User)
+                    .join(Assignment, Assignment.user_id == User.id)
+                    .where(Assignment.adventure_id == adventure_id)
+                ).scalars().all()
+                seen_ids = set()
+                for u in [*signup_users, *assignment_users]:
+                    if u.id in seen_ids:
+                        continue
+                    seen_ids.add(u.id)
+                    notify_users.append(u)
 
             # Delete signups related to this adventure
             db.session.execute(
@@ -889,6 +927,20 @@ class AdventureResource(MethodView):
             # Delete the adventure itself
             db.session.delete(adventure)
             db.session.commit()
+
+            if notify_users:
+                if notify_mode == "cancelled":
+                    body = f"{adventure.title} on {adventure.date.isoformat()} has been cancelled."
+                else:
+                    body = f"{adventure.title} on {adventure.date.isoformat()} was removed and may be set up again."
+
+                for u in notify_users:
+                    send_fcm_notification(
+                        u,
+                        "Session update",
+                        body,
+                        category="assignments",
+                    )
 
             return {'message': f'Adventure {adventure_id} and all relations deleted successfully'}
 
@@ -1119,10 +1171,11 @@ class SignupResource(MethodView):
 
         try:
 
-            # Fetch the adventure date
-            adventure_date = db.session.execute(
-                db.select(Adventure.date).where(Adventure.id == adventure_id)
-            ).scalar_one()
+            # Fetch the adventure for signup rules and optional immediate placement.
+            adventure = db.session.get(Adventure, adventure_id)
+            if not adventure:
+                abort(404, message='Adventure not found')
+            adventure_date = adventure.date
             
             # Check if exact same signup already exists (toggle behavior)
             stmt = db.select(Signup).where(
@@ -1162,6 +1215,50 @@ class SignupResource(MethodView):
                     adventure_date=adventure_date  # type: ignore
                 )
                 db.session.add(new_signup)
+
+                # After release, place late signups immediately.
+                if adventure.release_assignments and adventure.is_waitinglist == 0:
+                    already_assigned = db.session.execute(
+                        db.select(Assignment)
+                        .join(Adventure, Assignment.adventure_id == Adventure.id)
+                        .where(
+                            Assignment.user_id == user_id,
+                            Adventure.date == adventure_date,
+                        )
+                    ).scalars().first()
+
+                    if not already_assigned:
+                        filled = db.session.execute(
+                            db.select(func.count(Assignment.user_id))
+                            .where(Assignment.adventure_id == adventure_id)
+                        ).scalar_one()
+
+                        if filled < adventure.max_players:
+                            assignment = Assignment()
+                            assignment.user_id = user_id
+                            assignment.adventure_id = adventure_id
+                            assignment.preference_place = priority
+                            db.session.add(assignment)
+                            player = db.session.get(User, user_id)
+                            if player:
+                                notify_live_signup_change(adventure, player, "assigned")
+                        else:
+                            waiting_list = make_waiting_list_for_event(adventure.event_type_id, adventure.date)
+                            existing_waiting = db.session.execute(
+                                db.select(Assignment).where(
+                                    Assignment.user_id == user_id,
+                                    Assignment.adventure_id == waiting_list.id,
+                                )
+                            ).scalars().first()
+                            if not existing_waiting:
+                                waiting_assignment = Assignment()
+                                waiting_assignment.user_id = user_id
+                                waiting_assignment.adventure_id = waiting_list.id
+                                waiting_assignment.preference_place = None
+                                db.session.add(waiting_assignment)
+                                player = db.session.get(User, user_id)
+                                if player:
+                                    notify_live_signup_change(adventure, player, "waiting")
                 message = 'Signup registered'
 
             db.session.commit()
@@ -1195,7 +1292,9 @@ class FCMSaveToken(MethodView):
                     existing.user_id = current_user.id
                     db.session.commit()
             else:
-                new_token = FCMToken(user_id=current_user.id, token=fcm_token)
+                new_token = FCMToken()
+                new_token.user_id = current_user.id
+                new_token.token = fcm_token
                 db.session.add(new_token)
                 db.session.commit()
 

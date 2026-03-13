@@ -439,6 +439,23 @@ def release_assignments(today=None):
             category="assignments",
         )
 
+    creator_messages = defaultdict(list)
+    for adventure in adventures:
+        if adventure.is_waitinglist == 1 or not adventure.user_id:
+            continue
+        creator_messages[adventure.user_id].append(adventure.title)
+
+    for creator_id, titles in creator_messages.items():
+        creator = db.session.get(User, creator_id)
+        if not creator:
+            continue
+        send_fcm_notification(
+            creator,
+            "Assignments Released",
+            f"Assignments were released for: {', '.join(sorted(set(titles)))}",
+            category="assignments",
+        )
+
 
 def reset_release(today=None):
     today = today or date.today()
@@ -470,6 +487,38 @@ def notify_admins_new_adventure(adventure: Adventure, creator: User):
             "New event created",
             f"{creator.display_name} created: {adventure.title}",
             category="create_adventure_reminder",
+        )
+
+
+def notify_live_signup_change(adventure: Adventure, player: User, outcome: str):
+    """Notify admins and creator about immediate post-release placement changes."""
+    body = (
+        f"{player.display_name} was assigned to {adventure.title}."
+        if outcome == "assigned"
+        else f"{player.display_name} was placed on the waiting list for {adventure.title}."
+    )
+
+    admins = db.session.execute(
+        db.select(User).where(
+            User.privilege_level >= 2,
+            User.notify_create_adventure_reminder.is_(True),
+        )
+    ).scalars().all()
+    for admin in admins:
+        send_fcm_notification(
+            admin,
+            "Live signup update",
+            body,
+            category="create_adventure_reminder",
+        )
+
+    creator = db.session.get(User, adventure.user_id) if adventure.user_id else None
+    if creator:
+        send_fcm_notification(
+            creator,
+            "Live signup update",
+            body,
+            category="assignments",
         )
 
 def reassign_players_from_waiting_list(today=None, auto_commit=True):
