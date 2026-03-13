@@ -159,6 +159,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     needs: [backend_test, frontend_test]
+    env:
+      FIREBASE_SERVICE_ACCOUNT_JSON_B64: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON_B64 }}
 
     permissions:
       contents: read
@@ -182,15 +184,13 @@ jobs:
           path: backend/app/static/
 
       - name: Inject Firebase service account key for backend
-        if: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON_B64 != '' }}
+        if: ${{ env.FIREBASE_SERVICE_ACCOUNT_JSON_B64 != '' }}
         run: |
           mkdir -p backend/app/config
           echo "${FIREBASE_SERVICE_ACCOUNT_JSON_B64}" | base64 -d > backend/app/config/serviceAccountKey.json
-        env:
-          FIREBASE_SERVICE_ACCOUNT_JSON_B64: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON_B64 }}
 
       - name: Warn if backend Firebase service account is missing
-        if: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON_B64 == '' }}
+        if: ${{ env.FIREBASE_SERVICE_ACCOUNT_JSON_B64 == '' }}
         run: |
           echo "::warning::FIREBASE_SERVICE_ACCOUNT_JSON_B64 secret is missing. Backend Firebase messaging will be disabled."
 
