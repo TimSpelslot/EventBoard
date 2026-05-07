@@ -4,6 +4,7 @@
       <q-toolbar class="row justify-between">
         <div class="q-gutter-x-md">
           <q-btn label="Events" icon="home" to="/" />
+          <q-btn label="Sessions" icon="event_available" to="/sessions" />
           <q-btn label="FAQ" icon="help" to="/faq" />
         </div>
         <q-avatar icon="img:spelslot-logo.svg" size="50px"></q-avatar>
@@ -20,6 +21,9 @@
               <q-list style="min-width: 100px">
                 <q-item to="/profile">
                   <q-item-section>Edit profile</q-item-section>
+                </q-item>
+                <q-item v-if="me" to="/admin/events">
+                  <q-item-section>Event operations</q-item-section>
                 </q-item>
                 <q-item clickable v-close-popup @click="logout">
                   <q-item-section>Log out</q-item-section>

@@ -11,7 +11,6 @@ from firebase_admin import credentials
 
 import logging
 from datetime import datetime, date, timedelta
-from sqlalchemy import not_
 
 from .provider import db, ma, ap_scheduler, login_manager, google_oauth, mail, migrate
 from .models import *
@@ -152,10 +151,6 @@ def create_app(config_file=None):
 
     # --- Cronjobs ---   
     a_d, a_h = config['TIMING']['assignment_day'].split("@")
-    _weekday_names = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
-    _a_weekday_idx = _weekday_names.index(a_d[:3].lower()) if a_d[:3].lower() in _weekday_names else 2
-    _nudge_hour = (int(a_h) - 4) % 24
-    _nudge_day = _weekday_names[(_a_weekday_idx - 1) % 7] if (int(a_h) - 4) < 0 else a_d
 
     @ap_scheduler.task('cron', id='make_assignments', day_of_week=a_d, hour=a_h)
     def cron_make_assignments():
@@ -163,81 +158,91 @@ def create_app(config_file=None):
             app.logger.info("--- Triggering scheduled 'make assignment' job ---")
             assign_players_to_adventures()
 
-    @ap_scheduler.task('cron', id='deadline_nudge', day_of_week=_nudge_day, hour=_nudge_hour)
-    def cron_deadline_nudge():
+    @ap_scheduler.task('cron', id='three_day_signup_confirmation', hour=config['TIMING'].get('signup_confirmation_hour', 9))
+    def cron_three_day_signup_confirmation():
         with app.app_context():
             today = date.today()
-            start_of_week, end_of_week = get_upcoming_week(today)
+            target_date = today + timedelta(days=3)
 
-            signed_up_users_ids = db.session.scalars(
-                db.select(Signup.user_id)
-                .where(Signup.adventure_date >= start_of_week,
-                       Signup.adventure_date <= end_of_week)
-            ).all()
-
-            users_to_nudge = db.session.scalars(
-                db.select(User)
-                .join(FCMToken)
-                .where(not_(User.id.in_(signed_up_users_ids)))
-            ).all()
-
-            for user in users_to_nudge:
-                send_fcm_notification(user, "Deadline Reminder", "Don't forget to sign up for your next adventure!")
-            app.logger.info("--- Triggering scheduled 'deadline nudge' job ---")
-
-    # X days before assignment day: remind subscribed users to create an adventure
-    _reminder_days = config['TIMING'].get('create_adventure_reminder_days', 3)
-    _reminder_weekday_idx = (_a_weekday_idx - _reminder_days + 7) % 7
-    _reminder_weekday = _weekday_names[_reminder_weekday_idx]
-    _reminder_day = _weekday_names[(_reminder_weekday_idx - 1) % 7] if (int(a_h) - 4) < 0 else _reminder_weekday
-
-    @ap_scheduler.task('cron', id='create_adventure_reminder', day_of_week=_reminder_day, hour=_nudge_hour)
-    def cron_create_adventure_reminder():
-        with app.app_context():
-            app.logger.info("--- Triggering scheduled 'create adventure reminder' job ---")
-            users_to_remind = db.session.scalars(
-                db.select(User)
-                .join(FCMToken)
-                .where(User.notify_create_adventure_reminder == True)
-            ).all()
-            for user in users_to_remind:
-                send_fcm_notification(
-                    user,
-                    "Create an adventure",
-                    f"Signup deadline is in {_reminder_days} day(s). Add an adventure so players can sign up!",
-                    category="create_adventure_reminder",
+            assignments = db.session.execute(
+                db.select(Assignment)
+                .join(Adventure, Assignment.adventure_id == Adventure.id)
+                .join(EventType, Adventure.event_type_id == EventType.id)
+                .options(
+                    db.contains_eager(Assignment.adventure),
                 )
-            app.logger.info("--- Create adventure reminder done ---")
-
-    @ap_scheduler.task('cron', id='release_assignment_reminder', hour=config['TIMING'].get('release_reminder_hour', 9))
-    def cron_release_assignment_reminder():
-        with app.app_context():
-            today = date.today()
-            adventures = db.session.execute(
-                db.select(Adventure).where(
+                .where(
+                    Adventure.date == target_date,
                     Adventure.is_waitinglist == 0,
-                    Adventure.release_assignments.is_(False),
-                    Adventure.date >= today,
+                    EventType.signup_mode == "immediate_automatic",
                 )
             ).scalars().all()
 
-            due = [a for a in adventures if (a.date - today).days == int(a.release_reminder_days or 2)]
-            if not due:
+            if not assignments:
                 return
 
-            admins = db.session.execute(
-                db.select(User).where(
-                    User.privilege_level >= 2,
-                    User.notify_create_adventure_reminder.is_(True),
-                )
-            ).scalars().all()
+            grouped: dict[int, list[str]] = {}
+            users: dict[int, User] = {}
+            for assignment in assignments:
+                user = assignment.user
+                adventure = assignment.adventure
+                if not user or not adventure:
+                    continue
+                users[user.id] = user
+                grouped.setdefault(user.id, []).append(adventure.title)
 
-            for admin in admins:
+            for user_id, titles in grouped.items():
+                user = users.get(user_id)
+                if not user:
+                    continue
                 send_fcm_notification(
-                    admin,
-                    "Release reminder",
-                    f"{len(due)} event(s) are due for assignment release soon.",
-                    category="create_adventure_reminder",
+                    user,
+                    "Upcoming event",
+                    f"You are signed up for: {', '.join(sorted(set(titles)))}",
+                    category="signup_confirmation_3d",
                 )
+
+    @ap_scheduler.task('cron', id='event_session_reminders', hour=config['TIMING'].get('signup_confirmation_hour', 9))
+    def cron_event_session_reminders():
+        with app.app_context():
+            today = date.today()
+            # Find all active events and check each session's reminder lead
+            events = db.session.execute(
+                db.select(Event)
+                .options(
+                    db.joinedload(Event.days)
+                    .joinedload(EventDay.sessions)
+                    .joinedload(EventSession.participants)
+                    .joinedload(EventSessionParticipant.user)
+                )
+                .where(Event.is_active == True)
+            ).unique().scalars().all()
+
+            notifications_sent = 0
+            notified: set[tuple[int, int]] = set()  # (user_id, session_id)
+            for event in events:
+                for event_day in (event.days or []):
+                    target_date = event_day.date
+                    for session in (event_day.sessions or []):
+                        days_before = session.release_reminder_days or event.notification_days_before
+                        if today + timedelta(days=days_before) != target_date:
+                            continue
+                        for participant in session.participants:
+                            if participant.status != EventSessionParticipant.STATUS_PLACED:
+                                continue
+                            if not participant.user_id or not participant.user:
+                                continue
+                            key = (participant.user_id, session.id)
+                            if key in notified:
+                                continue
+                            notified.add(key)
+                            send_fcm_notification(
+                                participant.user,
+                                "Upcoming session",
+                                f"You are signed up for '{session.title}' on {target_date.strftime('%A %d %B')}",
+                                category="assignments",
+                            )
+                            notifications_sent += 1
+            app.logger.info(f"Event session reminders: sent {notifications_sent} notifications")
 
     return app

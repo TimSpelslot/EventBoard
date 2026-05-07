@@ -58,6 +58,13 @@
           <q-input v-model="form.description" :label="dialogLabels.description" type="textarea" autogrow />
           <q-input v-model="form.image_url" :label="dialogLabels.imageUrl" />
           <q-toggle v-model="form.is_single_event" :label="dialogLabels.singleEvent" />
+          <q-select
+            v-model="form.signup_mode"
+            :options="signupModeOptions"
+            emit-value
+            map-options
+            :label="dialogLabels.signupMode"
+          />
           <DatePicker
             v-if="form.is_single_event"
             v-model="form.single_date"
@@ -81,6 +88,7 @@
           />
           <q-toggle v-model="form.exclude_july_august" :label="dialogLabels.excludeJulyAugust" />
           <q-select
+            v-if="form.signup_mode === 'delayed_manual'"
             v-model.number="form.default_release_reminder_days"
             :options="releaseReminderOptions"
             emit-value
@@ -138,6 +146,10 @@ export default defineComponent({
         { label: '3 days before', value: 3 },
         { label: '1 week before', value: 7 },
       ],
+      signupModeOptions: [
+        { label: 'Immediate/Automatic', value: 'immediate_automatic' },
+        { label: 'Delayed/Manual', value: 'delayed_manual' },
+      ],
     };
   },
   data() {
@@ -155,6 +167,7 @@ export default defineComponent({
         weekday: 2,
         exclude_july_august: false,
         is_single_event: false,
+        signup_mode: 'delayed_manual',
         single_date: '',
         default_release_reminder_days: 2,
         sort_order: 10,
@@ -180,6 +193,7 @@ export default defineComponent({
           weekday: 'Weekdag',
           excludeJulyAugust: 'Juli en augustus uitsluiten',
           singleEvent: 'Eenmalig evenement (geen weeknavigatie)',
+          signupMode: 'Inschrijfmodus',
           singleEventDate: 'Datum (eenmalig evenement)',
           releaseReminder: 'Vrijgave-herinnering',
           sortOrder: 'Sorteervolgorde',
@@ -216,6 +230,7 @@ export default defineComponent({
         weekday: 'Weekday',
         excludeJulyAugust: 'Exclude July & August',
         singleEvent: 'Single event (no week navigation)',
+        signupMode: 'Signup mode',
         singleEventDate: 'Date (single event)',
         releaseReminder: 'Release reminder',
         sortOrder: 'Sort order',
@@ -303,6 +318,7 @@ export default defineComponent({
         weekday: 2,
         exclude_july_august: false,
         is_single_event: false,
+        signup_mode: 'delayed_manual',
         single_date: '',
         default_release_reminder_days: 2,
         sort_order: 10,
@@ -326,7 +342,8 @@ export default defineComponent({
         weekday: eventType.weekday,
         exclude_july_august: eventType.exclude_july_august,
         is_single_event: Boolean(eventType.is_single_event),
-        single_date: Boolean(eventType.is_single_event) ? (eventType.next_date || '') : '',
+        signup_mode: eventType.signup_mode || 'delayed_manual',
+        single_date: eventType.is_single_event ? (eventType.next_date || '') : '',
         default_release_reminder_days: eventType.default_release_reminder_days ?? 2,
         sort_order: eventType.sort_order,
         is_active: eventType.is_active,

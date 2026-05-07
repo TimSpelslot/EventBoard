@@ -11,6 +11,7 @@ def test_event_types_list_returns_defaults(client):
     assert 'Dungeons & Dragons Junior 8-12' in titles
     assert all('next_date' in item for item in data)
     assert all('is_single_event' in item for item in data)
+    assert all('signup_mode' in item for item in data)
 
 
 def test_event_types_create_requires_admin(client, normal_user_id):
@@ -56,6 +57,7 @@ def test_event_types_create_admin(client, admin_user_id):
     data = response.get_json()
     assert data['title'] == 'Special Event'
     assert data['is_single_event'] is True
+    assert data['signup_mode'] == 'delayed_manual'
     assert 'next_date' in data
 
 

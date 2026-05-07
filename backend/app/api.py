@@ -22,7 +22,21 @@ import json
 import requests
 from typing import Any, cast
 
-from .models import db, User, Adventure, Assignment, FCMToken, EventType
+from .models import (
+    db,
+    User,
+    Adventure,
+    Assignment,
+    FCMToken,
+    EventType,
+    Event,
+    EventDay,
+    EventTable,
+    EventMembership,
+    EventSession,
+    EventSessionParticipant,
+    GuestPlayer,
+)
 from .util import *
 from .provider import ma, ap_scheduler
 from firebase_admin import messaging
@@ -40,10 +54,30 @@ blp_users = Blueprint("users", "users", url_prefix="/api/users",
                description="Users API: Everything related to the users.")
 blp_event_types = Blueprint("event-types", "event-types", url_prefix="/api/event-types",
                description="Event Types API: Public event-type cards and admin management.")
+blp_events = Blueprint("events", "events", url_prefix="/api/events",
+               description="Events API: Concrete multi-day events, memberships, and schedule setup.")
+blp_event_days = Blueprint("event-days", "event-days", url_prefix="/api/event-days",
+               description="Event-day API: Tables and sessions within a concrete event day.")
+blp_event_tables = Blueprint("event-tables", "event-tables", url_prefix="/api/event-tables",
+               description="Event-table API: Table-level mutations within concrete event days.")
+blp_event_sessions = Blueprint("event-sessions", "event-sessions", url_prefix="/api/event-sessions",
+               description="Event-session API: Session-level mutations within concrete events.")
 # 1. Define the Blueprint for Notifications
 blp_notifications = Blueprint("notifications", "notifications", url_prefix="/api/notifications",
                description="FCM Operations: Saving tokens and triggering test pushes.")
-api_blueprints = [blp_utils, blp_users, blp_event_types, blp_adventures, blp_assignments, blp_signups, blp_notifications]
+api_blueprints = [
+    blp_utils,
+    blp_users,
+    blp_event_types,
+    blp_events,
+    blp_event_days,
+    blp_event_tables,
+    blp_event_sessions,
+    blp_adventures,
+    blp_assignments,
+    blp_signups,
+    blp_notifications,
+]
 
 # ----------------------- Schemas ---------------------------------
 
@@ -144,7 +178,9 @@ class UserWithSignupsSchema(ma.SQLAlchemyAutoSchema):
 class UserPatchSchema(ma.Schema):
     display_name = fields.String(required=False)
     notify_assignments = fields.Boolean(required=False)
-    notify_create_adventure_reminder = fields.Boolean(required=False)
+    notify_event_updates = fields.Boolean(required=False)
+    notify_signup_confirmation_3d = fields.Boolean(required=False)
+    notify_live_signup_updates = fields.Boolean(required=False)
     privilege_level = fields.Integer(required=False, validate=validate.OneOf([0, 1, 2]))
 
 class AdventureQuerySchema(ma.Schema):
@@ -226,6 +262,11 @@ class ConflictResponseSchema(ma.Schema):
 
 
 class EventTypeSchema(ma.SQLAlchemyAutoSchema):
+    signup_mode = fields.String(
+        required=False,
+        validate=validate.OneOf(["immediate_automatic", "delayed_manual"]),
+    )
+
     class Meta:
         model = EventType
         include_fk = True
@@ -236,6 +277,355 @@ class EventTypeSchema(ma.SQLAlchemyAutoSchema):
 
 class EventTypeResponseSchema(EventTypeSchema):
     next_date = fields.String(dump_only=True)
+
+
+class EventMembershipSchema(ma.SQLAlchemyAutoSchema):
+    user = fields.Nested(UserSchema, dump_only=True)
+
+    class Meta:
+        model = EventMembership
+        include_fk = True
+        load_instance = False
+        sqla_session = db.session
+
+
+class EventTableSchema(ma.SQLAlchemyAutoSchema):
+    class Meta:
+        model = EventTable
+        include_fk = True
+        load_instance = False
+        sqla_session = db.session
+
+
+class EventSessionSchema(ma.SQLAlchemyAutoSchema):
+    host = fields.Nested(UserSchema, dump_only=True)
+    creator = fields.Nested(UserSchema, dump_only=True)
+
+    class Meta:
+        model = EventSession
+        include_fk = True
+        load_instance = False
+        sqla_session = db.session
+
+
+class EventDaySchema(ma.SQLAlchemyAutoSchema):
+    tables = fields.List(fields.Nested(lambda: EventTableSchema()), dump_only=True)
+    sessions = fields.List(fields.Nested(lambda: EventSessionSchema()), dump_only=True)
+
+    class Meta:
+        model = EventDay
+        include_fk = True
+        load_instance = False
+        sqla_session = db.session
+
+
+class EventSchema(ma.SQLAlchemyAutoSchema):
+    creator = fields.Nested(UserSchema, dump_only=True)
+    memberships = fields.List(fields.Nested(lambda: EventMembershipSchema()), dump_only=True)
+    days = fields.List(fields.Nested(lambda: EventDaySchema()), dump_only=True)
+
+    class Meta:
+        model = Event
+        include_fk = True
+        load_instance = False
+        sqla_session = db.session
+
+
+class EventCreateSchema(ma.Schema):
+    title = fields.String(required=True)
+    description = fields.String(required=False, allow_none=True)
+    notification_days_before = fields.Integer(required=False, load_default=2)
+    allow_event_admin_notifications = fields.Boolean(required=False, load_default=False)
+    is_active = fields.Boolean(required=False, load_default=True)
+
+
+class EventUpdateSchema(ma.Schema):
+    title = fields.String(required=False)
+    description = fields.String(required=False, allow_none=True)
+    notification_days_before = fields.Integer(required=False)
+    allow_event_admin_notifications = fields.Boolean(required=False)
+    is_active = fields.Boolean(required=False)
+
+
+class EventMembershipCreateSchema(ma.Schema):
+    user_id = fields.Integer(required=True)
+    role = fields.String(required=True, validate=validate.OneOf(list(EventMembership.VALID_ROLES)))
+    can_send_notifications = fields.Boolean(required=False, load_default=False)
+
+
+class EventDayCreateSchema(ma.Schema):
+    date = fields.Date(required=True)
+    label = fields.String(required=False, allow_none=True)
+    sort_order = fields.Integer(required=False, load_default=0)
+
+
+class EventDayUpdateSchema(ma.Schema):
+    date = fields.Date(required=False)
+    label = fields.String(required=False, allow_none=True)
+    sort_order = fields.Integer(required=False)
+
+
+class EventTableCreateSchema(ma.Schema):
+    name = fields.String(required=True)
+    sort_order = fields.Integer(required=False, load_default=0)
+
+
+class EventTableUpdateSchema(ma.Schema):
+    name = fields.String(required=False)
+    sort_order = fields.Integer(required=False)
+
+
+class EventSessionCreateSchema(ma.Schema):
+    title = fields.String(required=True)
+    short_description = fields.String(required=True)
+    event_table_id = fields.Integer(required=True)
+    host_user_id = fields.Integer(required=False, allow_none=True)
+    max_players = fields.Integer(required=False, load_default=5)
+    start_time = fields.Time(required=True)
+    duration_minutes = fields.Integer(required=False, load_default=60)
+    placement_mode = fields.String(required=False, load_default=EventSession.PLACEMENT_DELAYED, validate=validate.OneOf(list(EventSession.VALID_PLACEMENT_MODES)))
+    release_assignments = fields.Boolean(required=False, load_default=False)
+    release_reminder_days = fields.Integer(required=False, load_default=2)
+
+
+class EventSessionUpdateSchema(ma.Schema):
+    title = fields.String(required=False)
+    short_description = fields.String(required=False)
+    event_table_id = fields.Integer(required=False)
+    host_user_id = fields.Integer(required=False, allow_none=True)
+    max_players = fields.Integer(required=False)
+    start_time = fields.Time(required=False)
+    duration_minutes = fields.Integer(required=False)
+    placement_mode = fields.String(required=False, validate=validate.OneOf(list(EventSession.VALID_PLACEMENT_MODES)))
+    release_assignments = fields.Boolean(required=False)
+    release_reminder_days = fields.Integer(required=False)
+
+
+class EventSessionParticipantSchema(ma.SQLAlchemyAutoSchema):
+    user = fields.Nested(UserSchema, dump_only=True)
+
+    class GuestPlayerMiniSchema(ma.Schema):
+        id = fields.Integer(required=True)
+        display_name = fields.String(required=True)
+
+    guest_player = fields.Nested(GuestPlayerMiniSchema, dump_only=True)
+
+    class Meta:
+        model = EventSessionParticipant
+        include_fk = True
+        load_instance = False
+        sqla_session = db.session
+
+
+class EventSessionManualParticipantCreateSchema(ma.Schema):
+    display_name = fields.String(required=True)
+    status = fields.String(required=False, load_default=EventSessionParticipant.STATUS_PLACED, validate=validate.OneOf(list(EventSessionParticipant.VALID_STATUSES)))
+    priority = fields.Integer(required=False, allow_none=True, validate=validate.Range(min=1, max=3))
+    comment = fields.String(required=False, allow_none=True)
+
+
+class EventSessionUserParticipantCreateSchema(ma.Schema):
+    user_id = fields.Integer(required=True)
+    status = fields.String(required=False, load_default=EventSessionParticipant.STATUS_PLACED, validate=validate.OneOf(list(EventSessionParticipant.VALID_STATUSES)))
+    priority = fields.Integer(required=False, allow_none=True, validate=validate.Range(min=1, max=3))
+    comment = fields.String(required=False, allow_none=True)
+
+
+class EventSessionParticipantUpdateSchema(ma.Schema):
+    status = fields.String(required=False, validate=validate.OneOf(list(EventSessionParticipant.VALID_STATUSES)))
+    priority = fields.Integer(required=False, allow_none=True, validate=validate.Range(min=1, max=3))
+    comment = fields.String(required=False, allow_none=True)
+
+
+class EventSessionNotifySchema(ma.Schema):
+    title = fields.String(required=True)
+    body = fields.String(required=True)
+    include_waitlist = fields.Boolean(required=False, load_default=True)
+    include_blocked = fields.Boolean(required=False, load_default=False)
+
+
+class UserSearchQuerySchema(ma.Schema):
+    q = fields.String(required=False, load_default='')
+
+
+class PublicEventSessionSchema(ma.Schema):
+    id = fields.Integer(required=True)
+    title = fields.String(required=True)
+    short_description = fields.String(required=True)
+    event_table_id = fields.Integer(required=True)
+    table_name = fields.String(required=True)
+    host_user_id = fields.Integer(allow_none=True)
+    max_players = fields.Integer(required=True)
+    start_time = fields.Time(required=True)
+    duration_minutes = fields.Integer(required=True)
+    placement_mode = fields.String(required=True)
+    placed_count = fields.Integer(required=True)
+    waitlist_count = fields.Integer(required=True)
+    my_status = fields.String(allow_none=True)
+    my_participant_id = fields.Integer(allow_none=True)
+
+
+class PublicEventDaySchema(ma.Schema):
+    id = fields.Integer(required=True)
+    date = fields.Date(required=True)
+    label = fields.String(allow_none=True)
+    sessions = fields.List(fields.Nested(PublicEventSessionSchema), required=True)
+
+
+class PublicEventSchema(ma.Schema):
+    id = fields.Integer(required=True)
+    title = fields.String(required=True)
+    description = fields.String(allow_none=True)
+    days = fields.List(fields.Nested(PublicEventDaySchema), required=True)
+
+
+def _event_query():
+    return db.select(Event).options(
+        joinedload(Event.creator),
+        joinedload(Event.memberships).joinedload(EventMembership.user),
+        joinedload(Event.days).joinedload(EventDay.tables),
+        joinedload(Event.days).joinedload(EventDay.sessions).joinedload(EventSession.host),
+        joinedload(Event.days).joinedload(EventDay.sessions).joinedload(EventSession.creator),
+    )
+
+
+def _has_table_schedule_conflict(
+    event_day_id: int,
+    event_table_id: int,
+    start_time_value,
+    duration_minutes: int,
+    exclude_session_id: int | None = None,
+) -> bool:
+    candidate = EventSession(
+        title="candidate",
+        short_description="candidate",
+        event_day_id=event_day_id,
+        event_table_id=event_table_id,
+        start_time=start_time_value,
+        duration_minutes=duration_minutes,
+    )
+    query = db.select(EventSession).where(
+        EventSession.event_day_id == event_day_id,
+        EventSession.event_table_id == event_table_id,
+    )
+    if exclude_session_id is not None:
+        query = query.where(EventSession.id != exclude_session_id)
+    existing_sessions = db.session.execute(query).scalars().all()
+    return any(candidate.overlaps_with(existing_session) for existing_session in existing_sessions)
+
+
+def _placed_participant_count(event_session_id: int) -> int:
+    return len(db.session.execute(
+        db.select(EventSessionParticipant).where(
+            EventSessionParticipant.event_session_id == event_session_id,
+            EventSessionParticipant.status == EventSessionParticipant.STATUS_PLACED,
+        )
+    ).scalars().all())
+
+
+def _placed_participant_count_excluding(event_session_id: int, exclude_participant_id: int | None = None) -> int:
+    query = db.select(EventSessionParticipant).where(
+        EventSessionParticipant.event_session_id == event_session_id,
+        EventSessionParticipant.status == EventSessionParticipant.STATUS_PLACED,
+    )
+    if exclude_participant_id is not None:
+        query = query.where(EventSessionParticipant.id != exclude_participant_id)
+    return len(db.session.execute(query).scalars().all())
+
+
+def _has_user_session_overlap(user_id: int, target_session: EventSession) -> bool:
+    target_event_day = db.session.get(EventDay, target_session.event_day_id)
+    session_rows = db.session.execute(
+        db.select(EventSession)
+        .join(EventSessionParticipant, EventSessionParticipant.event_session_id == EventSession.id)
+        .options(joinedload(EventSession.event_day))
+        .where(
+            EventSessionParticipant.user_id == user_id,
+            EventSessionParticipant.status == EventSessionParticipant.STATUS_PLACED,
+            EventSession.id != target_session.id,
+        )
+    ).scalars().all()
+
+    for existing in session_rows:
+        if existing.event_day_id == target_session.event_day_id:
+            if existing.overlaps_with(target_session):
+                return True
+            continue
+
+        if existing.event_day and target_event_day and existing.event_day.date == target_event_day.date:
+            if existing.start_time < target_session.end_time and target_session.start_time < existing.end_time:
+                return True
+
+    return False
+
+
+def _next_waitlist_participant(event_session_id: int):
+    return db.session.execute(
+        db.select(EventSessionParticipant)
+        .where(
+            EventSessionParticipant.event_session_id == event_session_id,
+            EventSessionParticipant.status == EventSessionParticipant.STATUS_WAITLIST,
+        )
+        .order_by(EventSessionParticipant.created_at.asc(), EventSessionParticipant.id.asc())
+    ).scalars().first()
+
+
+def _promote_next_waitlist_participant(event_session: EventSession):
+    if _placed_participant_count(event_session.id) >= event_session.max_players:
+        return None
+
+    while True:
+        candidate = _next_waitlist_participant(event_session.id)
+        if not candidate:
+            return None
+
+        if candidate.user_id and _has_user_session_overlap(candidate.user_id, event_session):
+            candidate.status = EventSessionParticipant.STATUS_BLOCKED_CONFLICT
+            db.session.flush()
+            continue
+
+        candidate.status = EventSessionParticipant.STATUS_PLACED
+        db.session.flush()
+        return candidate
+
+
+def _notify_user_participant_status_change(participant: EventSessionParticipant, event_session: EventSession, event_day: EventDay, trigger: str):
+    if not participant.user_id:
+        return
+
+    user = db.session.get(User, participant.user_id)
+    if not user:
+        return
+
+    date_str = event_day.date.isoformat() if event_day and event_day.date else "the event day"
+    status = participant.status
+
+    if trigger == "removed":
+        send_fcm_notification(
+            user,
+            "Session update",
+            f"You were removed from {event_session.title} on {date_str}.",
+            category="assignments",
+        )
+        return
+
+    if status == EventSessionParticipant.STATUS_PLACED:
+        body = f"You are placed in {event_session.title} on {date_str}."
+    elif status == EventSessionParticipant.STATUS_WAITLIST:
+        body = f"You are on the waiting list for {event_session.title} on {date_str}."
+    elif status == EventSessionParticipant.STATUS_BLOCKED_CONFLICT:
+        body = f"You are currently blocked for {event_session.title} on {date_str} due to a schedule overlap."
+    elif status == EventSessionParticipant.STATUS_CANCELLED:
+        body = f"Your participation in {event_session.title} on {date_str} was cancelled."
+    else:
+        return
+
+    send_fcm_notification(
+        user,
+        "Session update",
+        body,
+        category="assignments",
+    )
 
 # ----------------------- Routes ----------------------------------
 
@@ -262,6 +652,7 @@ class EventTypesResource(MethodView):
                 "week_of_month": et.week_of_month,
                 "exclude_july_august": et.exclude_july_august,
                 "is_single_event": et.is_single_event,
+                "signup_mode": et.signup_mode,
                 "default_release_reminder_days": et.default_release_reminder_days,
                 "is_active": et.is_active,
                 "sort_order": et.sort_order,
@@ -293,6 +684,7 @@ class EventTypesResource(MethodView):
             "week_of_month": event_type.week_of_month,
             "exclude_july_august": event_type.exclude_july_august,
             "is_single_event": event_type.is_single_event,
+            "signup_mode": event_type.signup_mode,
             "default_release_reminder_days": event_type.default_release_reminder_days,
             "is_active": event_type.is_active,
             "sort_order": event_type.sort_order,
@@ -313,6 +705,17 @@ class EventTypeResource(MethodView):
 
         for key, value in args.items():
             setattr(event_type, key, value)
+
+        if "signup_mode" in args:
+            release_now = args.get("signup_mode") == "immediate_automatic"
+            db.session.execute(
+                db.update(Adventure)
+                .where(
+                    Adventure.event_type_id == event_type.id,
+                    Adventure.date >= date.today(),
+                )
+                .values(release_assignments=release_now)
+            )
 
         if "default_release_reminder_days" in args:
             db.session.execute(
@@ -338,6 +741,7 @@ class EventTypeResource(MethodView):
             "week_of_month": event_type.week_of_month,
             "exclude_july_august": event_type.exclude_july_august,
             "is_single_event": event_type.is_single_event,
+            "signup_mode": event_type.signup_mode,
             "default_release_reminder_days": event_type.default_release_reminder_days,
             "is_active": event_type.is_active,
             "sort_order": event_type.sort_order,
@@ -397,9 +801,865 @@ class EventTypeResource(MethodView):
             else:
                 body = f"{event_type.title} was removed and may be set up again."
             for u in notify_users:
-                send_fcm_notification(u, "Event update", body, category="assignments")
+                send_fcm_notification(u, "Event update", body, category="event_updates")
 
         return {"message": f"Event type {event_type.title} deleted successfully."}
+
+
+# --- EVENTS ---
+@blp_events.route("")
+class EventsResource(MethodView):
+    @login_required
+    @blp_events.response(200, EventSchema(many=True))
+    def get(self):
+        query = _event_query().order_by(Event.created_at.desc())
+        if not is_admin(current_user):
+            query = query.join(Event.memberships).where(EventMembership.user_id == current_user.id)
+        return db.session.execute(query).unique().scalars().all()
+
+    @login_required
+    @blp_events.arguments(EventCreateSchema())
+    @blp_events.response(201, EventSchema)
+    def post(self, args):
+        if not is_admin(current_user):
+            abort(401, message="Unauthorized")
+
+        event = Event(**args)
+        event.created_by_user_id = current_user.id
+        db.session.add(event)
+        db.session.commit()
+        return db.session.execute(
+            _event_query().where(Event.id == event.id)
+        ).unique().scalars().one()
+
+
+@blp_events.route("/public")
+class PublicEventsResource(MethodView):
+    @login_required
+    @blp_events.response(200, PublicEventSchema(many=True))
+    def get(self):
+        """Public browse endpoint for players with per-session signup state."""
+        events = db.session.execute(
+            db.select(Event)
+            .options(
+                joinedload(Event.days)
+                .joinedload(EventDay.sessions)
+                .joinedload(EventSession.event_table),
+                joinedload(Event.days)
+                .joinedload(EventDay.sessions)
+                .joinedload(EventSession.participants),
+            )
+            .where(Event.is_active == True)
+            .order_by(Event.created_at.desc())
+        ).unique().scalars().all()
+
+        today = date.today()
+        payload = []
+        for event in events:
+            days_payload = []
+            for day in sorted((event.days or []), key=lambda d: (d.date, d.sort_order, d.id)):
+                if day.date < today:
+                    continue
+                sessions_payload = []
+                for session in sorted((day.sessions or []), key=lambda s: (s.start_time, s.id)):
+                    placed_count = 0
+                    waitlist_count = 0
+                    my_status = None
+                    my_participant_id = None
+                    for participant in (session.participants or []):
+                        if participant.status == EventSessionParticipant.STATUS_PLACED:
+                            placed_count += 1
+                        elif participant.status == EventSessionParticipant.STATUS_WAITLIST:
+                            waitlist_count += 1
+
+                        if participant.user_id == current_user.id:
+                            my_status = participant.status
+                            my_participant_id = participant.id
+
+                    sessions_payload.append({
+                        "id": session.id,
+                        "title": session.title,
+                        "short_description": session.short_description,
+                        "event_table_id": session.event_table_id,
+                        "table_name": session.event_table.name if session.event_table else "Table",
+                        "host_user_id": session.host_user_id,
+                        "max_players": session.max_players,
+                        "start_time": session.start_time,
+                        "duration_minutes": session.duration_minutes,
+                        "placement_mode": session.placement_mode,
+                        "placed_count": placed_count,
+                        "waitlist_count": waitlist_count,
+                        "my_status": my_status,
+                        "my_participant_id": my_participant_id,
+                    })
+
+                if sessions_payload:
+                    days_payload.append({
+                        "id": day.id,
+                        "date": day.date,
+                        "label": day.label,
+                        "sessions": sessions_payload,
+                    })
+
+            if days_payload:
+                payload.append({
+                    "id": event.id,
+                    "title": event.title,
+                    "description": event.description,
+                    "days": days_payload,
+                })
+
+        return payload
+
+
+@blp_events.route("/<int:event_id>")
+class EventResource(MethodView):
+    @login_required
+    @blp_events.response(200, EventSchema)
+    def get(self, event_id):
+        return db.session.execute(
+            _event_query().where(Event.id == event_id)
+        ).unique().scalars().one_or_none() or abort(404, message="Event not found")
+
+    @login_required
+    @blp_events.arguments(EventUpdateSchema())
+    @blp_events.response(200, EventSchema)
+    def patch(self, args, event_id):
+        if not is_admin(current_user):
+            abort(401, message="Unauthorized")
+
+        event = db.get_or_404(Event, event_id)
+        for key, value in args.items():
+            setattr(event, key, value)
+        db.session.commit()
+        return db.session.execute(
+            _event_query().where(Event.id == event.id)
+        ).unique().scalars().one()
+
+    @login_required
+    @blp_events.response(204)
+    def delete(self, event_id):
+        if not is_admin(current_user):
+            abort(401, message="Unauthorized")
+
+        event = db.get_or_404(Event, event_id)
+        db.session.delete(event)
+        db.session.commit()
+
+
+@blp_events.route("/<int:event_id>/memberships")
+class EventMembershipsResource(MethodView):
+    @login_required
+    @blp_events.arguments(EventMembershipCreateSchema())
+    @blp_events.response(201, EventMembershipSchema)
+    def post(self, args, event_id):
+        if not is_admin(current_user):
+            abort(401, message="Unauthorized")
+
+        db.get_or_404(Event, event_id)
+        user = db.session.get(User, args["user_id"])
+        if not user:
+            abort(404, message="User not found")
+
+        membership = EventMembership(event_id=event_id, **args)
+        db.session.add(membership)
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            abort(409, message="Membership already exists for this user and event")
+
+        return db.session.execute(
+            db.select(EventMembership)
+            .options(joinedload(EventMembership.user))
+            .where(EventMembership.id == membership.id)
+        ).scalars().one()
+
+
+@blp_events.route("/<int:event_id>/memberships/<int:membership_id>")
+class EventMembershipResource(MethodView):
+    @login_required
+    @blp_events.response(204)
+    def delete(self, event_id, membership_id):
+        if not is_admin(current_user):
+            abort(401, message="Unauthorized")
+
+        membership = db.session.execute(
+            db.select(EventMembership)
+            .where(EventMembership.id == membership_id, EventMembership.event_id == event_id)
+        ).scalars().one_or_none()
+        if not membership:
+            abort(404, message="Membership not found")
+
+        db.session.delete(membership)
+        db.session.commit()
+
+
+@blp_events.route("/<int:event_id>/days")
+class EventDaysResource(MethodView):
+    @login_required
+    @blp_events.arguments(EventDayCreateSchema())
+    @blp_events.response(201, EventDaySchema)
+    def post(self, args, event_id):
+        if not is_admin(current_user):
+            abort(401, message="Unauthorized")
+
+        db.get_or_404(Event, event_id)
+        event_day = EventDay(event_id=event_id, **args)
+        db.session.add(event_day)
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            abort(409, message="An event day already exists for this date")
+        return event_day
+
+
+@blp_event_days.route("/<int:event_day_id>")
+class EventDayResource(MethodView):
+    @login_required
+    @blp_event_days.arguments(EventDayUpdateSchema())
+    @blp_event_days.response(200, EventDaySchema)
+    def patch(self, args, event_day_id):
+        if not is_admin(current_user):
+            abort(401, message="Unauthorized")
+
+        event_day = db.get_or_404(EventDay, event_day_id)
+        for key, value in args.items():
+            setattr(event_day, key, value)
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            abort(409, message="An event day already exists for this date")
+        return event_day
+
+    @login_required
+    @blp_event_days.response(200, MessageSchema)
+    def delete(self, event_day_id):
+        if not is_admin(current_user):
+            abort(401, message="Unauthorized")
+
+        event_day = db.get_or_404(EventDay, event_day_id)
+        db.session.delete(event_day)
+        db.session.commit()
+        return {"message": "Event day deleted"}
+
+
+@blp_event_days.route("/<int:event_day_id>/tables")
+class EventDayTablesResource(MethodView):
+    @login_required
+    @blp_event_days.arguments(EventTableCreateSchema())
+    @blp_event_days.response(201, EventTableSchema)
+    def post(self, args, event_day_id):
+        event_day = db.get_or_404(EventDay, event_day_id)
+        event = db.get_or_404(Event, event_day.event_id)
+        if not is_admin(current_user) and not is_event_admin(current_user, event):
+            abort(401, message="Unauthorized")
+
+        event_table = EventTable(event_day_id=event_day_id, **args)
+        db.session.add(event_table)
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            abort(409, message="A table with this name already exists for the event day")
+        return event_table
+
+
+@blp_event_tables.route("/<int:event_table_id>")
+class EventTableResource(MethodView):
+    @login_required
+    @blp_event_tables.arguments(EventTableUpdateSchema())
+    @blp_event_tables.response(200, EventTableSchema)
+    def patch(self, args, event_table_id):
+        event_table = db.get_or_404(EventTable, event_table_id)
+        event_day = db.get_or_404(EventDay, event_table.event_day_id)
+        event = db.get_or_404(Event, event_day.event_id)
+        if not is_admin(current_user) and not is_event_admin(current_user, event):
+            abort(401, message="Unauthorized")
+
+        for key, value in args.items():
+            setattr(event_table, key, value)
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            abort(409, message="A table with this name already exists for the event day")
+        return event_table
+
+    @login_required
+    @blp_event_tables.response(200, MessageSchema)
+    def delete(self, event_table_id):
+        event_table = db.get_or_404(EventTable, event_table_id)
+        event_day = db.get_or_404(EventDay, event_table.event_day_id)
+        event = db.get_or_404(Event, event_day.event_id)
+        if not is_admin(current_user) and not is_event_admin(current_user, event):
+            abort(401, message="Unauthorized")
+
+        db.session.delete(event_table)
+        db.session.commit()
+        return {"message": "Event table deleted"}
+
+
+@blp_event_days.route("/<int:event_day_id>/sessions")
+class EventDaySessionsResource(MethodView):
+    @login_required
+    @blp_event_days.arguments(EventSessionCreateSchema())
+    @blp_event_days.response(201, EventSessionSchema)
+    def post(self, args, event_day_id):
+        event_day = db.get_or_404(EventDay, event_day_id)
+        event = db.get_or_404(Event, event_day.event_id)
+        if not can_manage_event_sessions(current_user, event):
+            abort(401, message="Unauthorized")
+
+        event_table = db.session.get(EventTable, args["event_table_id"])
+        if not event_table or event_table.event_day_id != event_day_id:
+            abort(400, message="event_table_id must belong to the target event day")
+
+        host_user_id = args.get("host_user_id")
+        if host_user_id is not None:
+            host_user = db.session.get(User, host_user_id)
+            if not host_user:
+                abort(404, message="Host user not found")
+            if not is_admin(current_user) and not is_event_admin(current_user, event) and host_user_id != current_user.id:
+                abort(401, message="Helpers can only create sessions for themselves")
+        elif not is_admin(current_user):
+            host_user_id = current_user.id
+
+        if _has_table_schedule_conflict(
+            event_day_id,
+            args["event_table_id"],
+            args["start_time"],
+            args["duration_minutes"],
+        ):
+            abort(409, message="This table already has an overlapping session for the selected time")
+
+        session = EventSession(
+            title=args["title"],
+            short_description=args["short_description"],
+            event_day_id=event_day_id,
+            event_table_id=args["event_table_id"],
+            host_user_id=host_user_id,
+            created_by_user_id=current_user.id,
+            max_players=args["max_players"],
+            start_time=args["start_time"],
+            duration_minutes=args["duration_minutes"],
+            placement_mode=args["placement_mode"],
+            release_assignments=args["release_assignments"],
+            release_reminder_days=args["release_reminder_days"],
+        )
+        db.session.add(session)
+        db.session.commit()
+        return db.session.execute(
+            db.select(EventSession)
+            .options(joinedload(EventSession.host), joinedload(EventSession.creator))
+            .where(EventSession.id == session.id)
+        ).scalars().one()
+
+
+@blp_event_sessions.route("/<int:event_session_id>")
+class EventSessionResource(MethodView):
+    @login_required
+    @blp_event_sessions.arguments(EventSessionUpdateSchema())
+    @blp_event_sessions.response(200, EventSessionSchema)
+    def patch(self, args, event_session_id):
+        session = db.get_or_404(EventSession, event_session_id)
+        event_day = db.get_or_404(EventDay, session.event_day_id)
+        event = db.get_or_404(Event, event_day.event_id)
+        if not can_manage_event_sessions(current_user, event):
+            abort(401, message="Unauthorized")
+
+        target_table_id = args.get("event_table_id", session.event_table_id)
+        if "event_table_id" in args:
+            target_table = db.session.get(EventTable, target_table_id)
+            if not target_table or target_table.event_day_id != session.event_day_id:
+                abort(400, message="event_table_id must belong to the session's event day")
+
+        target_host_user_id = args.get("host_user_id", session.host_user_id)
+        if "host_user_id" in args and target_host_user_id is not None:
+            target_host_user = db.session.get(User, target_host_user_id)
+            if not target_host_user:
+                abort(404, message="Host user not found")
+            if not is_admin(current_user) and not is_event_admin(current_user, event) and target_host_user_id != current_user.id:
+                abort(401, message="Helpers can only assign themselves as host")
+
+        target_start_time = args.get("start_time", session.start_time)
+        target_duration = args.get("duration_minutes", session.duration_minutes)
+        if _has_table_schedule_conflict(
+            session.event_day_id,
+            target_table_id,
+            target_start_time,
+            target_duration,
+            exclude_session_id=session.id,
+        ):
+            abort(409, message="This table already has an overlapping session for the selected time")
+
+        for key, value in args.items():
+            setattr(session, key, value)
+        db.session.commit()
+
+        return db.session.execute(
+            db.select(EventSession)
+            .options(joinedload(EventSession.host), joinedload(EventSession.creator))
+            .where(EventSession.id == session.id)
+        ).scalars().one()
+
+    @login_required
+    @blp_event_sessions.response(200, MessageSchema)
+    def delete(self, event_session_id):
+        session = db.get_or_404(EventSession, event_session_id)
+        event_day = db.get_or_404(EventDay, session.event_day_id)
+        event = db.get_or_404(Event, event_day.event_id)
+        if not can_manage_event_sessions(current_user, event):
+            abort(401, message="Unauthorized")
+
+        db.session.delete(session)
+        db.session.commit()
+        return {"message": "Event session deleted"}
+
+
+@blp_event_sessions.route("/<int:event_session_id>/participants/manual")
+class EventSessionManualParticipantsResource(MethodView):
+    @login_required
+    @blp_event_sessions.arguments(EventSessionManualParticipantCreateSchema())
+    @blp_event_sessions.response(201, EventSessionParticipantSchema)
+    def post(self, args, event_session_id):
+        event_session = db.get_or_404(EventSession, event_session_id)
+        event_day = db.get_or_404(EventDay, event_session.event_day_id)
+        event = db.get_or_404(Event, event_day.event_id)
+        if not can_manage_event_sessions(current_user, event):
+            abort(401, message="Unauthorized")
+
+        requested_status = args["status"]
+        # Delayed sessions queue everyone as waitlist; placement is handled via process-placements
+        if event_session.placement_mode == EventSession.PLACEMENT_DELAYED:
+            requested_status = EventSessionParticipant.STATUS_WAITLIST
+        elif requested_status == EventSessionParticipant.STATUS_PLACED and _placed_participant_count(event_session.id) >= event_session.max_players:
+            requested_status = EventSessionParticipant.STATUS_WAITLIST
+
+        guest_player = GuestPlayer(
+            display_name=args["display_name"],
+            created_by_user_id=current_user.id,
+            notes=args.get("comment"),
+        )
+        db.session.add(guest_player)
+        db.session.flush()
+
+        participant = EventSessionParticipant(
+            event_session_id=event_session.id,
+            guest_player_id=guest_player.id,
+            status=requested_status,
+            priority=args.get("priority"),
+            comment=args.get("comment"),
+            added_by_user_id=current_user.id,
+        )
+        db.session.add(participant)
+        db.session.commit()
+
+        return db.session.execute(
+            db.select(EventSessionParticipant)
+            .options(joinedload(EventSessionParticipant.guest_player), joinedload(EventSessionParticipant.user))
+            .where(EventSessionParticipant.id == participant.id)
+        ).scalars().one()
+
+
+@blp_event_sessions.route("/<int:event_session_id>/participants/users")
+class EventSessionUserParticipantsResource(MethodView):
+    @login_required
+    @blp_event_sessions.arguments(EventSessionUserParticipantCreateSchema())
+    @blp_event_sessions.response(201, EventSessionParticipantSchema)
+    def post(self, args, event_session_id):
+        event_session = db.get_or_404(EventSession, event_session_id)
+        event_day = db.get_or_404(EventDay, event_session.event_day_id)
+        event = db.get_or_404(Event, event_day.event_id)
+        if not can_manage_event_sessions(current_user, event):
+            abort(401, message="Unauthorized")
+
+        user = db.session.get(User, args["user_id"])
+        if not user:
+            abort(404, message="User not found")
+
+        requested_status = args["status"]
+        # Delayed sessions queue everyone as waitlist; placement is handled via process-placements
+        if event_session.placement_mode == EventSession.PLACEMENT_DELAYED:
+            requested_status = EventSessionParticipant.STATUS_WAITLIST
+        elif requested_status == EventSessionParticipant.STATUS_PLACED:
+            if _has_user_session_overlap(user.id, event_session):
+                requested_status = EventSessionParticipant.STATUS_BLOCKED_CONFLICT
+            elif _placed_participant_count(event_session.id) >= event_session.max_players:
+                requested_status = EventSessionParticipant.STATUS_WAITLIST
+
+        participant = EventSessionParticipant(
+            event_session_id=event_session.id,
+            user_id=user.id,
+            status=requested_status,
+            priority=args.get("priority"),
+            comment=args.get("comment"),
+            added_by_user_id=current_user.id,
+        )
+        db.session.add(participant)
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            abort(409, message="User is already in this session participant list")
+
+        _notify_user_participant_status_change(participant, event_session, event_day, trigger="created")
+
+        return db.session.execute(
+            db.select(EventSessionParticipant)
+            .options(joinedload(EventSessionParticipant.guest_player), joinedload(EventSessionParticipant.user))
+            .where(EventSessionParticipant.id == participant.id)
+        ).scalars().one()
+
+
+@blp_event_sessions.route("/<int:event_session_id>/participants")
+class EventSessionParticipantsResource(MethodView):
+    @login_required
+    @blp_event_sessions.response(200, EventSessionParticipantSchema(many=True))
+    def get(self, event_session_id):
+        event_session = db.get_or_404(EventSession, event_session_id)
+        event_day = db.get_or_404(EventDay, event_session.event_day_id)
+        event = db.get_or_404(Event, event_day.event_id)
+        if not can_manage_event_sessions(current_user, event):
+            abort(401, message="Unauthorized")
+
+        return db.session.execute(
+            db.select(EventSessionParticipant)
+            .options(joinedload(EventSessionParticipant.guest_player), joinedload(EventSessionParticipant.user))
+            .where(EventSessionParticipant.event_session_id == event_session_id)
+            .order_by(EventSessionParticipant.created_at.asc(), EventSessionParticipant.id.asc())
+        ).scalars().all()
+
+
+@blp_event_sessions.route("/participants/<int:participant_id>")
+class EventSessionParticipantResource(MethodView):
+    @login_required
+    @blp_event_sessions.arguments(EventSessionParticipantUpdateSchema())
+    @blp_event_sessions.response(200, EventSessionParticipantSchema)
+    def patch(self, args, participant_id):
+        participant = db.get_or_404(EventSessionParticipant, participant_id)
+        event_session = db.get_or_404(EventSession, participant.event_session_id)
+        event_day = db.get_or_404(EventDay, event_session.event_day_id)
+        event = db.get_or_404(Event, event_day.event_id)
+        if not can_manage_event_sessions(current_user, event):
+            abort(401, message="Unauthorized")
+
+        original_status = participant.status
+        if "status" in args:
+            requested_status = args["status"]
+            if requested_status == EventSessionParticipant.STATUS_PLACED:
+                if participant.user_id and _has_user_session_overlap(participant.user_id, event_session):
+                    requested_status = EventSessionParticipant.STATUS_BLOCKED_CONFLICT
+                elif _placed_participant_count_excluding(event_session.id, exclude_participant_id=participant.id) >= event_session.max_players:
+                    requested_status = EventSessionParticipant.STATUS_WAITLIST
+            participant.status = requested_status
+
+        if "comment" in args:
+            participant.comment = args["comment"]
+
+        if "priority" in args:
+            participant.priority = args["priority"]
+
+        db.session.commit()
+
+        if participant.status != original_status:
+            _notify_user_participant_status_change(participant, event_session, event_day, trigger="updated")
+
+        return db.session.execute(
+            db.select(EventSessionParticipant)
+            .options(joinedload(EventSessionParticipant.guest_player), joinedload(EventSessionParticipant.user))
+            .where(EventSessionParticipant.id == participant.id)
+        ).scalars().one()
+
+    @login_required
+    @blp_event_sessions.response(200, MessageSchema)
+    def delete(self, participant_id):
+        participant = db.get_or_404(EventSessionParticipant, participant_id)
+        event_session = db.get_or_404(EventSession, participant.event_session_id)
+        event_day = db.get_or_404(EventDay, event_session.event_day_id)
+        event = db.get_or_404(Event, event_day.event_id)
+        if not can_manage_event_sessions(current_user, event):
+            abort(401, message="Unauthorized")
+
+        removed_user_id = participant.user_id
+        removed_status = participant.status
+        was_placed = participant.status == EventSessionParticipant.STATUS_PLACED
+        db.session.delete(participant)
+
+        promoted = None
+        auto_promote = (request.args.get("auto_promote") or "true").strip().lower() != "false"
+        if was_placed and auto_promote:
+            promoted = _promote_next_waitlist_participant(event_session)
+
+        db.session.commit()
+
+        if removed_user_id and removed_status in {
+            EventSessionParticipant.STATUS_PLACED,
+            EventSessionParticipant.STATUS_WAITLIST,
+            EventSessionParticipant.STATUS_BLOCKED_CONFLICT,
+            EventSessionParticipant.STATUS_CANCELLED,
+        }:
+            removed_shadow = EventSessionParticipant(
+                user_id=removed_user_id,
+                status=EventSessionParticipant.STATUS_CANCELLED,
+            )
+            _notify_user_participant_status_change(removed_shadow, event_session, event_day, trigger="removed")
+
+        if promoted:
+            _notify_user_participant_status_change(promoted, event_session, event_day, trigger="promoted")
+
+        if promoted:
+            return {"message": f"Participant removed and waitlist participant {promoted.id} promoted"}
+        return {"message": "Participant removed"}
+
+
+@blp_event_sessions.route("/<int:event_session_id>/participants/promote-next")
+class EventSessionPromoteNextResource(MethodView):
+    @login_required
+    @blp_event_sessions.response(200, EventSessionParticipantSchema)
+    def post(self, event_session_id):
+        event_session = db.get_or_404(EventSession, event_session_id)
+        event_day = db.get_or_404(EventDay, event_session.event_day_id)
+        event = db.get_or_404(Event, event_day.event_id)
+        if not can_manage_event_sessions(current_user, event):
+            abort(401, message="Unauthorized")
+
+        promoted = _promote_next_waitlist_participant(event_session)
+        if not promoted:
+            abort(409, message="No promotable waitlist participant available")
+
+        db.session.commit()
+        _notify_user_participant_status_change(promoted, event_session, event_day, trigger="promoted")
+        return db.session.execute(
+            db.select(EventSessionParticipant)
+            .options(joinedload(EventSessionParticipant.guest_player), joinedload(EventSessionParticipant.user))
+            .where(EventSessionParticipant.id == promoted.id)
+        ).scalars().one()
+
+
+@blp_event_sessions.route("/<int:event_session_id>/signup")
+class EventSessionSelfSignupResource(MethodView):
+    @login_required
+    @blp_event_sessions.response(200, EventSessionParticipantSchema)
+    def post(self, event_session_id):
+        """Public self-signup endpoint for logged-in players."""
+        event_session = db.get_or_404(EventSession, event_session_id)
+        event_day = db.get_or_404(EventDay, event_session.event_day_id)
+
+        existing = db.session.execute(
+            db.select(EventSessionParticipant)
+            .where(
+                EventSessionParticipant.event_session_id == event_session_id,
+                EventSessionParticipant.user_id == current_user.id,
+            )
+        ).scalars().first()
+        if existing:
+            abort(409, message="You are already signed up for this session")
+
+        if event_session.placement_mode == EventSession.PLACEMENT_DELAYED:
+            status = EventSessionParticipant.STATUS_WAITLIST
+        else:
+            if _has_user_session_overlap(current_user.id, event_session):
+                status = EventSessionParticipant.STATUS_BLOCKED_CONFLICT
+            elif _placed_participant_count(event_session.id) >= event_session.max_players:
+                status = EventSessionParticipant.STATUS_WAITLIST
+            else:
+                status = EventSessionParticipant.STATUS_PLACED
+
+        participant = EventSessionParticipant(
+            event_session_id=event_session.id,
+            user_id=current_user.id,
+            status=status,
+            added_by_user_id=current_user.id,
+        )
+        db.session.add(participant)
+        db.session.commit()
+
+        _notify_user_participant_status_change(participant, event_session, event_day, trigger="created")
+        return db.session.execute(
+            db.select(EventSessionParticipant)
+            .options(joinedload(EventSessionParticipant.guest_player), joinedload(EventSessionParticipant.user))
+            .where(EventSessionParticipant.id == participant.id)
+        ).scalars().one()
+
+    @login_required
+    @blp_event_sessions.response(200, MessageSchema)
+    def delete(self, event_session_id):
+        """Cancel current user's signup for a session."""
+        event_session = db.get_or_404(EventSession, event_session_id)
+        event_day = db.get_or_404(EventDay, event_session.event_day_id)
+
+        participant = db.session.execute(
+            db.select(EventSessionParticipant)
+            .where(
+                EventSessionParticipant.event_session_id == event_session_id,
+                EventSessionParticipant.user_id == current_user.id,
+            )
+        ).scalars().first()
+        if not participant:
+            abort(404, message="No signup found for this session")
+
+        removed_user_id = participant.user_id
+        removed_status = participant.status
+        was_placed = participant.status == EventSessionParticipant.STATUS_PLACED
+        db.session.delete(participant)
+
+        promoted = None
+        if was_placed:
+            promoted = _promote_next_waitlist_participant(event_session)
+
+        db.session.commit()
+
+        if removed_user_id and removed_status in {
+            EventSessionParticipant.STATUS_PLACED,
+            EventSessionParticipant.STATUS_WAITLIST,
+            EventSessionParticipant.STATUS_BLOCKED_CONFLICT,
+            EventSessionParticipant.STATUS_CANCELLED,
+        }:
+            removed_shadow = EventSessionParticipant(
+                user_id=removed_user_id,
+                status=EventSessionParticipant.STATUS_CANCELLED,
+            )
+            _notify_user_participant_status_change(removed_shadow, event_session, event_day, trigger="removed")
+
+        if promoted:
+            _notify_user_participant_status_change(promoted, event_session, event_day, trigger="promoted")
+            return {"message": f"Signup cancelled and waitlist participant {promoted.id} promoted"}
+
+        return {"message": "Signup cancelled"}
+
+
+@blp_event_sessions.route("/<int:event_session_id>/process-placements")
+class EventSessionProcessPlacementsResource(MethodView):
+    @login_required
+    @blp_event_sessions.response(200, MessageSchema)
+    def post(self, event_session_id):
+        """Batch-process delayed placements: sort waitlist by priority (1→3, then signup time),
+        place into available seats, mark conflicts as blocked, leave the rest on waitlist."""
+        event_session = db.get_or_404(EventSession, event_session_id)
+        event_day = db.get_or_404(EventDay, event_session.event_day_id)
+        event = db.get_or_404(Event, event_day.event_id)
+        if not can_manage_event_sessions(current_user, event):
+            abort(401, message="Unauthorized")
+
+        if event_session.placement_mode != EventSession.PLACEMENT_DELAYED:
+            abort(409, message="Session is not in delayed placement mode")
+
+        waitlist = db.session.execute(
+            db.select(EventSessionParticipant)
+            .options(joinedload(EventSessionParticipant.user))
+            .where(
+                EventSessionParticipant.event_session_id == event_session_id,
+                EventSessionParticipant.status == EventSessionParticipant.STATUS_WAITLIST,
+            )
+            .order_by(
+                EventSessionParticipant.priority.asc().nulls_last(),
+                EventSessionParticipant.created_at.asc(),
+                EventSessionParticipant.id.asc(),
+            )
+        ).scalars().all()
+
+        placed_count = _placed_participant_count(event_session.id)
+        notifications: list[tuple[EventSessionParticipant, str]] = []
+
+        for participant in waitlist:
+            if participant.user_id and _has_user_session_overlap(participant.user_id, event_session):
+                participant.status = EventSessionParticipant.STATUS_BLOCKED_CONFLICT
+                notifications.append((participant, "updated"))
+            elif placed_count < event_session.max_players:
+                participant.status = EventSessionParticipant.STATUS_PLACED
+                placed_count += 1
+                notifications.append((participant, "promoted"))
+            # else: leave on waitlist
+
+        db.session.commit()
+
+        for participant, trigger in notifications:
+            _notify_user_participant_status_change(participant, event_session, event_day, trigger=trigger)
+
+        placed_now = sum(1 for _, t in notifications if t == "promoted")
+        blocked_now = sum(1 for _, t in notifications if t == "updated")
+        return {"message": f"Placements processed: {placed_now} placed, {blocked_now} blocked conflict"}
+
+
+@blp_event_sessions.route("/<int:event_session_id>/notify")
+class EventSessionNotifyResource(MethodView):
+    @login_required
+    @blp_event_sessions.arguments(EventSessionNotifySchema())
+    @blp_event_sessions.response(200, MessageSchema)
+    def post(self, args, event_session_id):
+        event_session = db.get_or_404(EventSession, event_session_id)
+        event_day = db.get_or_404(EventDay, event_session.event_day_id)
+        event = db.get_or_404(Event, event_day.event_id)
+        if not can_send_event_notifications(current_user, event):
+            abort(401, message="Unauthorized")
+
+        statuses = [EventSessionParticipant.STATUS_PLACED]
+        if args["include_waitlist"]:
+            statuses.append(EventSessionParticipant.STATUS_WAITLIST)
+        if args["include_blocked"]:
+            statuses.append(EventSessionParticipant.STATUS_BLOCKED_CONFLICT)
+
+        participants = db.session.execute(
+            db.select(EventSessionParticipant)
+            .options(joinedload(EventSessionParticipant.user))
+            .where(
+                EventSessionParticipant.event_session_id == event_session_id,
+                EventSessionParticipant.user_id.is_not(None),
+                EventSessionParticipant.status.in_(statuses),
+            )
+        ).scalars().all()
+
+        notified_users = set()
+        for participant in participants:
+            user = participant.user
+            if not user or user.id in notified_users:
+                continue
+            notified_users.add(user.id)
+            send_fcm_notification(
+                user,
+                args["title"],
+                args["body"],
+                category="assignments",
+            )
+
+        return {"message": f"Notified {len(notified_users)} participants"}
+
+
+@blp_event_sessions.route("/<int:event_session_id>/eligible-users")
+class EventSessionEligibleUsersResource(MethodView):
+    @login_required
+    @blp_event_sessions.arguments(UserSearchQuerySchema(), location="query")
+    @blp_event_sessions.response(200, UserSchema(many=True, exclude=['privilege_level', 'email']))
+    def get(self, args, event_session_id):
+        event_session = db.get_or_404(EventSession, event_session_id)
+        event_day = db.get_or_404(EventDay, event_session.event_day_id)
+        event = db.get_or_404(Event, event_day.event_id)
+        if not can_manage_event_sessions(current_user, event):
+            abort(401, message="Unauthorized")
+
+        query_text = (args.get('q') or '').strip()
+        statement = db.select(User).where(User.id != current_user.id)
+
+        if query_text:
+            pattern = f"%{query_text}%"
+            statement = statement.where(
+                User.display_name.ilike(pattern) | User.name.ilike(pattern)
+            )
+
+        existing_user_ids = db.session.execute(
+            db.select(EventSessionParticipant.user_id).where(
+                EventSessionParticipant.event_session_id == event_session_id,
+                EventSessionParticipant.user_id.is_not(None),
+            )
+        ).scalars().all()
+        if existing_user_ids:
+            statement = statement.where(User.id.not_in(existing_user_ids))
+
+        statement = statement.order_by(User.display_name.asc()).limit(20)
+        return db.session.execute(statement).scalars().all()
 
 # --- UTILS ---
 
@@ -812,12 +2072,18 @@ class AdventureIDlessRequest(MethodView):
             abort(401, message="Only staff members or admins can create sessions.")
 
         try: 
+            event_type = None
+            event_type_id = args.get("event_type_id")
+            if event_type_id:
+                event_type = db.session.get(EventType, event_type_id)
+
             if "release_reminder_days" not in args:
-                event_type_id = args.get("event_type_id")
                 if event_type_id:
-                    event_type = db.session.get(EventType, event_type_id)
                     if event_type:
                         args["release_reminder_days"] = event_type.default_release_reminder_days
+
+            if event_type and event_type.signup_mode == "immediate_automatic":
+                args["release_assignments"] = True
 
             new_adv = Adventure.create(
                 user_id=current_user.id,
@@ -829,9 +2095,6 @@ class AdventureIDlessRequest(MethodView):
             make_waiting_list_for_event(new_adv.event_type_id, new_adv.date)
 
             db.session.commit()
-            creator = db.session.get(User, current_user.id)
-            if creator:
-                notify_admins_new_adventure(new_adv, creator)
             # Normal success: return the model instance (decorator will dump it)
             return new_adv
 
@@ -1018,7 +2281,7 @@ class AdventureResource(MethodView):
                         u,
                         "Session update",
                         body,
-                        category="assignments",
+                        category="event_updates",
                     )
 
             return {'message': f'Adventure {adventure_id} and all relations deleted successfully'}
@@ -1255,6 +2518,8 @@ class SignupResource(MethodView):
             if not adventure:
                 abort(404, message='Adventure not found')
             adventure_date = adventure.date
+            event_type = db.session.get(EventType, adventure.event_type_id) if adventure.event_type_id else None
+            signup_mode = (event_type.signup_mode if event_type and event_type.signup_mode else "delayed_manual")
             
             # Check if exact same signup already exists (toggle behavior)
             stmt = db.select(Signup).where(
@@ -1267,24 +2532,55 @@ class SignupResource(MethodView):
 
             if existing_signup:
                 db.session.delete(existing_signup)
+                if signup_mode == "immediate_automatic":
+                    # Immediate mode keeps assignment state in sync with signup toggles.
+                    existing_assignment = db.session.execute(
+                        db.select(Assignment).where(
+                            Assignment.user_id == user_id,
+                            Assignment.adventure_id == adventure_id,
+                        )
+                    ).scalars().first()
+                    if existing_assignment:
+                        db.session.delete(existing_assignment)
+                        reassign_players_from_waiting_list(adventure_date, auto_commit=False)
+
+                    waiting_list = make_waiting_list_for_event(adventure.event_type_id, adventure.date)
+                    still_signed_up_in_bucket = db.session.execute(
+                        db.select(func.count(Signup.id))
+                        .join(Adventure, Signup.adventure_id == Adventure.id)
+                        .where(
+                            Signup.user_id == user_id,
+                            Adventure.date == adventure_date,
+                            Adventure.event_type_id == adventure.event_type_id,
+                            Adventure.is_waitinglist == 0,
+                        )
+                    ).scalar_one()
+                    if not still_signed_up_in_bucket:
+                        db.session.execute(
+                            db.delete(Assignment).where(
+                                Assignment.user_id == user_id,
+                                Assignment.adventure_id == waiting_list.id,
+                            )
+                        )
                 message = 'Signup removed'
             else:
-               # Remove any existing signup with same priority and date (regardless of adventure)
-                db.session.execute(
-                    delete(Signup).where(
-                        Signup.user_id == user_id, 
-                        Signup.priority == priority,
-                        Signup.adventure_date == adventure_date
+                if signup_mode == "delayed_manual":
+                    # Remove any existing signup with same priority and date (regardless of adventure)
+                    db.session.execute(
+                        delete(Signup).where(
+                            Signup.user_id == user_id,
+                            Signup.priority == priority,
+                            Signup.adventure_date == adventure_date
+                        )
                     )
-                )
 
-                # Remove any existing signup for same adventure (regardless of priority)
-                db.session.execute(
-                    delete(Signup).where(
-                        Signup.user_id == user_id, 
-                        Signup.adventure_id == adventure_id
+                    # Remove any existing signup for same adventure (regardless of priority)
+                    db.session.execute(
+                        delete(Signup).where(
+                            Signup.user_id == user_id,
+                            Signup.adventure_id == adventure_id
+                        )
                     )
-                )
 
                 # Add new signup
                 new_signup = Signup(
@@ -1295,8 +2591,61 @@ class SignupResource(MethodView):
                 )
                 db.session.add(new_signup)
 
-                # After release, place late signups immediately.
-                if adventure.release_assignments and adventure.is_waitinglist == 0:
+                if signup_mode == "immediate_automatic" and adventure.is_waitinglist == 0:
+                    waiting_list = make_waiting_list_for_event(adventure.event_type_id, adventure.date)
+                    already_assigned = db.session.execute(
+                        db.select(Assignment)
+                        .join(Adventure, Assignment.adventure_id == Adventure.id)
+                        .where(
+                            Assignment.user_id == user_id,
+                            Adventure.date == adventure_date,
+                            Adventure.event_type_id == adventure.event_type_id,
+                            Adventure.is_waitinglist == 0,
+                        )
+                    ).scalars().first()
+
+                    if already_assigned:
+                        # A player assigned in this event/date bucket may not stay on any waiting list in the bucket.
+                        db.session.execute(
+                            db.delete(Assignment).where(
+                                Assignment.user_id == user_id,
+                                Assignment.adventure_id == waiting_list.id,
+                            )
+                        )
+                    else:
+                        filled = db.session.execute(
+                            db.select(func.count(Assignment.user_id))
+                            .where(Assignment.adventure_id == adventure_id)
+                        ).scalar_one()
+
+                        if filled < adventure.max_players:
+                            assignment = Assignment()
+                            assignment.user_id = user_id
+                            assignment.adventure_id = adventure_id
+                            assignment.preference_place = None
+                            db.session.add(assignment)
+                            db.session.execute(
+                                db.delete(Assignment).where(
+                                    Assignment.user_id == user_id,
+                                    Assignment.adventure_id == waiting_list.id,
+                                )
+                            )
+                        else:
+                            existing_waiting = db.session.execute(
+                                db.select(Assignment).where(
+                                    Assignment.user_id == user_id,
+                                    Assignment.adventure_id == waiting_list.id,
+                                )
+                            ).scalars().first()
+                            if not existing_waiting:
+                                waiting_assignment = Assignment()
+                                waiting_assignment.user_id = user_id
+                                waiting_assignment.adventure_id = waiting_list.id
+                                waiting_assignment.preference_place = None
+                                db.session.add(waiting_assignment)
+
+                # Delayed/manual mode: after release, place late signups immediately.
+                if signup_mode == "delayed_manual" and adventure.release_assignments and adventure.is_waitinglist == 0:
                     already_assigned = db.session.execute(
                         db.select(Assignment)
                         .join(Adventure, Assignment.adventure_id == Adventure.id)
@@ -1481,61 +2830,43 @@ class TestAutomation(MethodView):
     def post(self, target):
         """
         Manually triggers one of the notification scenarios.
-        target can be: 'new_adventure', 'admin_reminder', 'release', or 'create_adventure_reminder'.
-        The legacy 'deadline' target is still accepted as an alias for 'admin_reminder'.
+        target can be: 'release', 'event_update', 'signup_confirmation_3d', or 'live_signup'.
         """
-        
-        
-
-        if target == "new_adventure":
-            # Test 1: New Adventure (to everyone with tokens) — admin only
-            if not is_admin(current_user):
-                abort(403, message="Admin only")
-            if not current_app.config.get("FIREBASE_ENABLED", False):
-                return {"message": "Firebase is disabled (no service account key)"}, 503
-            tokens = [t.token for t in FCMToken.query.all()]
-            if tokens:
-                message = messaging.MulticastMessage(
-                    data={
-                        "title": "New Adventure Alert! ⚔️",
-                        "body": f"Test DM just posted: The Dragon's Lair",
-                    },
-                    tokens=tokens,
-                    webpush=messaging.WebpushConfig(
-                        headers={"Urgency": "high"}
-                    ),
-                )
-                messaging.send_each_for_multicast(message)
-            return {"message": f"Sent 'New Adventure' to {len(tokens)} devices"}
-
-        elif target in ("admin_reminder", "deadline"):
-            # Test 2: Admin reminder (to you only, if subscribed)
+        if target == "release":
+            # Assignment release notification (to caller)
             send_fcm_notification(
-                current_user, 
-                "Create an adventure",
-                "TEST: Signup deadline is in a few days. Add an adventure so players can sign up!",
-                category="create_adventure_reminder",
-            )
-            return {"message": "Sent 'Admin Reminder' to your device"}
-
-        elif target == "release":
-            # Test 3: Assignments Released (to you only)
-            send_fcm_notification(
-                current_user, 
-                "Party Assigned! 🎲", 
+                current_user,
+                "Party Assigned!",
                 "TEST: You've been assigned to: test adventure",
                 category="assignments"
             )
             return {"message": "Sent 'Assignment Release' to your device"}
 
-        elif target == "create_adventure_reminder":
-            # Test 4: Create adventure reminder (to you only, if subscribed)
+        elif target == "event_update":
             send_fcm_notification(
                 current_user,
-                "Create an adventure",
-                "TEST: Signup deadline is in a few days. Add an adventure so players can sign up!",
-                category="create_adventure_reminder",
+                "Session update",
+                "TEST: Your upcoming session was updated.",
+                category="event_updates",
             )
-            return {"message": "Sent 'Create Adventure Reminder' to your device"}
+            return {"message": "Sent 'Event Update' to your device"}
+
+        elif target == "signup_confirmation_3d":
+            send_fcm_notification(
+                current_user,
+                "Upcoming event",
+                "TEST: You are signed up for: test adventure",
+                category="signup_confirmation_3d",
+            )
+            return {"message": "Sent '3-day Signup Confirmation' to your device"}
+
+        elif target == "live_signup":
+            send_fcm_notification(
+                current_user,
+                "Live signup update",
+                "TEST: A player signed up after release.",
+                category="live_signup_updates",
+            )
+            return {"message": "Sent 'Live Signup Update' to your device"}
 
         return {"error": "Invalid target"}, 400

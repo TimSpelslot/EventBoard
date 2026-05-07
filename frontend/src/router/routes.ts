@@ -6,6 +6,7 @@ const routes: RouteRecordRaw[] = [
     component: () => import('layouts/MainLayout.vue'),
     children: [
       { path: '', component: () => import('pages/EventSelectPage.vue') },
+      { path: 'sessions', component: () => import('pages/PublicEventsPage.vue') },
       {
         path: 'events/:eventTypeId',
         component: () => import('pages/IndexPage.vue'),
@@ -15,6 +16,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'profile', component: () => import('pages/ProfilePage.vue') },
       { path: 'signups', component: () => import('pages/SignupsPage.vue') },
       { path: 'admin/users', component: () => import('pages/AdminUsersPage.vue') },
+      { path: 'admin/events', component: () => import('pages/AdminEventsPage.vue') },
       { path: 'faq', component: () => import('pages/FaqPage.vue') },
     ],
   },

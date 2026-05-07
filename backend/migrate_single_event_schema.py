@@ -11,6 +11,9 @@ USER_DROP_COLUMNS = [
     "dnd_beyond_campaign",
     "karma",
     "story_player",
+    "notify_new_adventure",
+    "notify_deadline",
+    "notify_create_adventure_reminder",
 ]
 
 ADVENTURE_DROP_COLUMNS = [
@@ -38,6 +41,7 @@ def _ensure_event_types_table_sqlite(conn) -> None:
                 week_of_month INTEGER NOT NULL,
                 exclude_july_august BOOLEAN NOT NULL DEFAULT 0,
                 is_single_event BOOLEAN NOT NULL DEFAULT 0,
+                signup_mode VARCHAR(32) NOT NULL DEFAULT 'delayed_manual',
                 default_release_reminder_days INTEGER NOT NULL DEFAULT 2,
                 is_active BOOLEAN NOT NULL DEFAULT 1,
                 sort_order INTEGER NOT NULL DEFAULT 0,
@@ -64,6 +68,7 @@ def _ensure_event_types_table_non_sqlite(conn, dialect: str) -> None:
                     week_of_month INTEGER NOT NULL,
                     exclude_july_august BOOLEAN NOT NULL DEFAULT FALSE,
                     is_single_event BOOLEAN NOT NULL DEFAULT FALSE,
+                    signup_mode VARCHAR(32) NOT NULL DEFAULT 'delayed_manual',
                     default_release_reminder_days INTEGER NOT NULL DEFAULT 2,
                     is_active BOOLEAN NOT NULL DEFAULT TRUE,
                     sort_order INTEGER NOT NULL DEFAULT 0,
@@ -86,6 +91,7 @@ def _ensure_event_types_table_non_sqlite(conn, dialect: str) -> None:
                     week_of_month INTEGER NOT NULL,
                     exclude_july_august BOOLEAN NOT NULL DEFAULT 0,
                     is_single_event BOOLEAN NOT NULL DEFAULT 0,
+                    signup_mode VARCHAR(32) NOT NULL DEFAULT 'delayed_manual',
                     default_release_reminder_days INTEGER NOT NULL DEFAULT 2,
                     is_active BOOLEAN NOT NULL DEFAULT 1,
                     sort_order INTEGER NOT NULL DEFAULT 0,
@@ -160,10 +166,10 @@ def _migrate_sqlite() -> None:
                         privilege_level INTEGER NOT NULL DEFAULT 0,
                         email VARCHAR(255),
                         profile_pic VARCHAR(512),
-                        notify_new_adventure BOOLEAN DEFAULT 1,
-                        notify_deadline BOOLEAN DEFAULT 1,
                         notify_assignments BOOLEAN DEFAULT 1,
-                        notify_create_adventure_reminder BOOLEAN DEFAULT 0
+                        notify_event_updates BOOLEAN DEFAULT 1,
+                        notify_signup_confirmation_3d BOOLEAN DEFAULT 1,
+                        notify_live_signup_updates BOOLEAN DEFAULT 1
                     )
                     """
                 )
@@ -174,8 +180,8 @@ def _migrate_sqlite() -> None:
                     INSERT INTO users (
                         id, google_id, name, display_name, privilege_level,
                         email, profile_pic,
-                        notify_new_adventure, notify_deadline,
-                        notify_assignments, notify_create_adventure_reminder
+                        notify_assignments, notify_event_updates,
+                        notify_signup_confirmation_3d, notify_live_signup_updates
                     )
                     SELECT
                         id,
@@ -185,10 +191,10 @@ def _migrate_sqlite() -> None:
                         privilege_level,
                         email,
                         profile_pic,
-                        COALESCE(notify_new_adventure, 1),
-                        COALESCE(notify_deadline, 1),
                         COALESCE(notify_assignments, 1),
-                        COALESCE(notify_create_adventure_reminder, 0)
+                        COALESCE(notify_event_updates, 1),
+                        COALESCE(notify_signup_confirmation_3d, 1),
+                        COALESCE(notify_live_signup_updates, 1)
                     FROM users__old
                     """
                 )
@@ -284,6 +290,21 @@ def migrate_single_event_schema() -> None:
                     "ALTER TABLE event_types ADD COLUMN default_release_reminder_days INTEGER NOT NULL DEFAULT 2"
                 )
             )
+        if "signup_mode" not in et_cols:
+            conn.execute(
+                text(
+                    "ALTER TABLE event_types ADD COLUMN signup_mode VARCHAR(32) NOT NULL DEFAULT 'delayed_manual'"
+                )
+            )
+
+    if _table_exists(inspector, "users"):
+        user_cols = {c["name"] for c in inspector.get_columns("users")}
+        if "notify_event_updates" not in user_cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN notify_event_updates BOOLEAN NOT NULL DEFAULT 1"))
+        if "notify_signup_confirmation_3d" not in user_cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN notify_signup_confirmation_3d BOOLEAN NOT NULL DEFAULT 1"))
+        if "notify_live_signup_updates" not in user_cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN notify_live_signup_updates BOOLEAN NOT NULL DEFAULT 1"))
 
     if _table_exists(inspector, "adventures"):
         _drop_columns_non_sqlite("adventures", ADVENTURE_DROP_COLUMNS)

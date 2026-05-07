@@ -1,5 +1,5 @@
 <template>
-  <q-page>
+  <q-page class="page-bottom-spacing">
     <div class="row items-center justify-center q-my-md q-mx-lg">
       <q-btn
         v-if="showWeekNavigation && canGoEarlier"
@@ -396,6 +396,11 @@
   border: 1px solid;
   border-radius: 4px;
   padding: 8px;
+}
+@media (max-width: 599px) {
+  .page-bottom-spacing {
+    padding-bottom: 80px;
+  }
 }
 .adminDropTarget {
   border-radius: 4px;

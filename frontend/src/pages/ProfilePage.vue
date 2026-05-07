@@ -20,11 +20,31 @@
 
   <q-item tag="label" v-ripple>
     <q-item-section>
-      <q-item-label>Admin reminders</q-item-label>
-      <q-item-label caption>Release reminders and new-event notifications (admins)</q-item-label>
+      <q-item-label>Event and session updates</q-item-label>
+      <q-item-label caption>Cancellation/removal updates for events and sessions</q-item-label>
     </q-item-section>
     <q-item-section side>
-      <q-toggle v-model="notify_create_adventure_reminder" color="primary" />
+      <q-toggle v-model="notify_event_updates" color="primary" />
+    </q-item-section>
+  </q-item>
+
+  <q-item tag="label" v-ripple>
+    <q-item-section>
+      <q-item-label>3-day signup confirmation</q-item-label>
+      <q-item-label caption>Reminder 3 days before Immediate/Automatic events</q-item-label>
+    </q-item-section>
+    <q-item-section side>
+      <q-toggle v-model="notify_signup_confirmation_3d" color="primary" />
+    </q-item-section>
+  </q-item>
+
+  <q-item tag="label" v-ripple v-if="me?.privilege_level >= 1">
+    <q-item-section>
+      <q-item-label>Live signup updates</q-item-label>
+      <q-item-label caption>Post-release signup updates for staff/admin event managers</q-item-label>
+    </q-item-section>
+    <q-item-section side>
+      <q-toggle v-model="notify_live_signup_updates" color="primary" />
     </q-item-section>
   </q-item>
 </q-list>
@@ -57,7 +77,9 @@ export default defineComponent({
     return {
       display_name: me?.display_name,
       notify_assignments: me?.notify_assignments ?? true,
-      notify_create_adventure_reminder: me?.notify_create_adventure_reminder ?? false,
+      notify_event_updates: me?.notify_event_updates ?? true,
+      notify_signup_confirmation_3d: me?.notify_signup_confirmation_3d ?? true,
+      notify_live_signup_updates: me?.notify_live_signup_updates ?? true,
     };
   },
   methods: {
@@ -65,7 +87,9 @@ export default defineComponent({
       await this.$api.patch('/api/users/' + this.me.id, {
         display_name: this.display_name,
         notify_assignments: this.notify_assignments,
-        notify_create_adventure_reminder: this.notify_create_adventure_reminder,
+        notify_event_updates: this.notify_event_updates,
+        notify_signup_confirmation_3d: this.notify_signup_confirmation_3d,
+        notify_live_signup_updates: this.notify_live_signup_updates,
       });
       this.$emit('changedUser');
       this.$q.notify({

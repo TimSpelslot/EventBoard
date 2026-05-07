@@ -62,6 +62,45 @@ def ensure_event_type_schema_compat():
                         "ALTER TABLE event_types ADD COLUMN default_release_reminder_days INTEGER NOT NULL DEFAULT 2"
                     )
                 )
+            if "signup_mode" not in event_type_cols:
+                current_app.logger.warning(
+                    "Schema compat: missing event_types.signup_mode, applying ALTER TABLE."
+                )
+                conn.execute(
+                    text(
+                        "ALTER TABLE event_types ADD COLUMN signup_mode VARCHAR(32) NOT NULL DEFAULT 'delayed_manual'"
+                    )
+                )
+
+        if "users" in table_names:
+            user_cols = {c["name"] for c in inspector.get_columns("users")}
+            if "notify_event_updates" not in user_cols:
+                current_app.logger.warning(
+                    "Schema compat: missing users.notify_event_updates, applying ALTER TABLE."
+                )
+                conn.execute(
+                    text(
+                        "ALTER TABLE users ADD COLUMN notify_event_updates BOOLEAN NOT NULL DEFAULT 1"
+                    )
+                )
+            if "notify_signup_confirmation_3d" not in user_cols:
+                current_app.logger.warning(
+                    "Schema compat: missing users.notify_signup_confirmation_3d, applying ALTER TABLE."
+                )
+                conn.execute(
+                    text(
+                        "ALTER TABLE users ADD COLUMN notify_signup_confirmation_3d BOOLEAN NOT NULL DEFAULT 1"
+                    )
+                )
+            if "notify_live_signup_updates" not in user_cols:
+                current_app.logger.warning(
+                    "Schema compat: missing users.notify_live_signup_updates, applying ALTER TABLE."
+                )
+                conn.execute(
+                    text(
+                        "ALTER TABLE users ADD COLUMN notify_live_signup_updates BOOLEAN NOT NULL DEFAULT 1"
+                    )
+                )
 
         db.session.commit()
     except Exception as exc:
@@ -72,6 +111,44 @@ def ensure_event_type_schema_compat():
 
 def is_admin(user):
     return user.is_authenticated and user.privilege_level >= 2
+
+
+def get_event_membership(user, event):
+    if not user or not getattr(user, "is_authenticated", False) or not event:
+        return None
+    return db.session.execute(
+        db.select(EventMembership).where(
+            EventMembership.event_id == event.id,
+            EventMembership.user_id == user.id,
+        )
+    ).scalars().first()
+
+
+def is_event_admin(user, event) -> bool:
+    if is_admin(user):
+        return True
+    membership = get_event_membership(user, event)
+    return bool(membership and membership.is_event_admin)
+
+
+def can_manage_event(user, event) -> bool:
+    return is_event_admin(user, event)
+
+
+def can_manage_event_sessions(user, event) -> bool:
+    if is_admin(user):
+        return True
+    membership = get_event_membership(user, event)
+    return bool(membership and membership.can_manage_sessions)
+
+
+def can_send_event_notifications(user, event) -> bool:
+    if is_admin(user):
+        return True
+    if not event or not event.allow_event_admin_notifications:
+        return False
+    membership = get_event_membership(user, event)
+    return bool(membership and membership.is_event_admin and membership.can_send_notifications)
 
 def get_next_wednesday(today=None):
     today = today or date.today()
@@ -199,12 +276,18 @@ def make_waiting_list_for_event(event_type_id: int | None, target_date: date) ->
     if existing_waiting_list:
         return existing_waiting_list
 
+    release_now = False
+    if event_type_id:
+        event_type = db.session.get(EventType, event_type_id)
+        release_now = bool(event_type and event_type.signup_mode == "immediate_automatic")
+
     waiting_list = Adventure.create(
         title=WAITING_LIST_NAME,
         max_players=128,
         short_description='',
         date=target_date,
         is_waitinglist=1,
+        release_assignments=release_now,
         event_type_id=event_type_id,
     )
     db.session.add(waiting_list)
@@ -481,24 +564,6 @@ def reset_release(today=None):
     db.session.commit()
 
 
-def notify_admins_new_adventure(adventure: Adventure, creator: User):
-    """Send a create-event notification to admins who opted into admin reminders."""
-    admins = db.session.execute(
-        db.select(User).where(
-            User.privilege_level >= 2,
-            User.notify_create_adventure_reminder.is_(True),
-        )
-    ).scalars().all()
-
-    for admin in admins:
-        send_fcm_notification(
-            admin,
-            "New event created",
-            f"{creator.display_name} created: {adventure.title}",
-            category="create_adventure_reminder",
-        )
-
-
 def notify_live_signup_change(adventure: Adventure, player: User, outcome: str):
     """Notify admins and creator about immediate post-release placement changes."""
     body = (
@@ -510,7 +575,7 @@ def notify_live_signup_change(adventure: Adventure, player: User, outcome: str):
     admins = db.session.execute(
         db.select(User).where(
             User.privilege_level >= 2,
-            User.notify_create_adventure_reminder.is_(True),
+            User.notify_live_signup_updates.is_(True),
         )
     ).scalars().all()
     for admin in admins:
@@ -518,7 +583,7 @@ def notify_live_signup_change(adventure: Adventure, player: User, outcome: str):
             admin,
             "Live signup update",
             body,
-            category="create_adventure_reminder",
+            category="live_signup_updates",
         )
 
     creator = db.session.get(User, adventure.user_id) if adventure.user_id else None
@@ -527,7 +592,7 @@ def notify_live_signup_change(adventure: Adventure, player: User, outcome: str):
             creator,
             "Live signup update",
             body,
-            category="assignments",
+            category="live_signup_updates",
         )
 
 def reassign_players_from_waiting_list(today=None, auto_commit=True):
