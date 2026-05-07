@@ -1,11 +1,24 @@
-from datetime import date
+from datetime import date, timedelta
 
 from app.models import Adventure, Assignment, User
 from app.provider import db
 from tests.conftest import login
 
 
+def _future_adventure_date() -> date:
+    return date.today() + timedelta(days=7)
+
+
+def _future_week_bounds() -> tuple[str, str]:
+    target_date = _future_adventure_date()
+    week_start = target_date - timedelta(days=target_date.weekday())
+    week_end = week_start + timedelta(days=6)
+    return week_start.isoformat(), week_end.isoformat()
+
+
 def _create_adventure_with_assignment(app, released=False):
+    future_date = _future_adventure_date()
+
     with app.app_context():
         approved = User.create(google_id="approved-user", name="Approved", privilege_level=1)
         other = User.create(google_id="other-user", name="Other", privilege_level=1)
@@ -15,7 +28,7 @@ def _create_adventure_with_assignment(app, released=False):
             short_description="Permission test",
             user_id=approved.id,
             max_players=5,
-            date=date(2026, 3, 20),
+            date=future_date,
             tags=None,
             is_waitinglist=0,
             release_assignments=released,
@@ -58,11 +71,12 @@ def test_assignment_users_visible_for_privilege_one(client, app):
 
 
 def test_adventure_list_hides_assignments_for_privilege_zero(client, app, normal_user_id):
+    week_start, week_end = _future_week_bounds()
     _create_adventure_with_assignment(app)
     login(client, normal_user_id)
 
     response = client.get(
-        "/api/adventures?week_start=2026-03-16&week_end=2026-03-22",
+        f"/api/adventures?week_start={week_start}&week_end={week_end}",
         base_url="https://localhost",
     )
 
@@ -73,6 +87,9 @@ def test_adventure_list_hides_assignments_for_privilege_zero(client, app, normal
 
 
 def test_adventure_list_shows_only_own_assignment_for_privilege_zero(client, app):
+    future_date = _future_adventure_date()
+    week_start, week_end = _future_week_bounds()
+
     with app.app_context():
         noob = User.create(google_id="noob-user", name="Noob", privilege_level=0)
         approved = User.create(google_id="approved-owner", name="Approved Owner", privilege_level=1)
@@ -83,7 +100,7 @@ def test_adventure_list_shows_only_own_assignment_for_privilege_zero(client, app
             short_description="Own assignment visibility",
             user_id=approved.id,
             max_players=5,
-            date=date(2026, 3, 20),
+            date=future_date,
             tags=None,
             is_waitinglist=0,
             release_assignments=True,
@@ -104,7 +121,7 @@ def test_adventure_list_shows_only_own_assignment_for_privilege_zero(client, app
     login(client, noob_id)
 
     response = client.get(
-        "/api/adventures?week_start=2026-03-16&week_end=2026-03-22",
+        f"/api/adventures?week_start={week_start}&week_end={week_end}",
         base_url="https://localhost",
     )
 
@@ -117,11 +134,12 @@ def test_adventure_list_shows_only_own_assignment_for_privilege_zero(client, app
 
 
 def test_adventure_list_shows_assignments_for_privilege_one(client, app):
+    week_start, week_end = _future_week_bounds()
     _, approved_id = _create_adventure_with_assignment(app, released=True)
     login(client, approved_id)
 
     response = client.get(
-        "/api/adventures?week_start=2026-03-16&week_end=2026-03-22",
+        f"/api/adventures?week_start={week_start}&week_end={week_end}",
         base_url="https://localhost",
     )
 
@@ -132,11 +150,12 @@ def test_adventure_list_shows_assignments_for_privilege_one(client, app):
 
 
 def test_adventure_list_hides_assignments_for_privilege_one_before_release(client, app):
+    week_start, week_end = _future_week_bounds()
     _, approved_id = _create_adventure_with_assignment(app, released=False)
     login(client, approved_id)
 
     response = client.get(
-        "/api/adventures?week_start=2026-03-16&week_end=2026-03-22",
+        f"/api/adventures?week_start={week_start}&week_end={week_end}",
         base_url="https://localhost",
     )
 
@@ -155,7 +174,7 @@ def test_adventure_create_forbidden_for_privilege_zero(client, normal_user_id):
             "title": "Blocked Session",
             "short_description": "Should fail",
             "max_players": 5,
-            "date": "2026-03-20",
+            "date": _future_adventure_date().isoformat(),
         },
         base_url="https://localhost",
     )
@@ -176,7 +195,7 @@ def test_adventure_create_allowed_for_privilege_one(client, app):
             "title": "Allowed Session",
             "short_description": "Should succeed",
             "max_players": 5,
-            "date": "2026-03-20",
+            "date": _future_adventure_date().isoformat(),
         },
         base_url="https://localhost",
     )

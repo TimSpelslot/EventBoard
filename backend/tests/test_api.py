@@ -1,8 +1,19 @@
-from datetime import date
+from datetime import date, timedelta
 
 from app.models import Adventure, User
 from app.provider import db
 from tests.conftest import login
+
+
+def _future_adventure_date() -> date:
+    return date.today() + timedelta(days=7)
+
+
+def _future_week_bounds() -> tuple[str, str]:
+    target_date = _future_adventure_date()
+    week_start = target_date - timedelta(days=target_date.weekday())
+    week_end = week_start + timedelta(days=6)
+    return week_start.isoformat(), week_end.isoformat()
 
 
 def test_alive_endpoint_reports_status(client):
@@ -68,7 +79,7 @@ def test_adventure_create_rejects_requested_room_field(client, app):
             "title": "Roomless Session",
             "short_description": "No rooms anymore",
             "max_players": 5,
-            "date": "2026-03-20",
+            "date": _future_adventure_date().isoformat(),
             "requested_room": "A",
         },
         base_url="https://localhost",
@@ -78,6 +89,9 @@ def test_adventure_create_rejects_requested_room_field(client, app):
 
 
 def test_adventure_response_excludes_requested_room(client, app):
+    future_date = _future_adventure_date()
+    week_start, week_end = _future_week_bounds()
+
     with app.app_context():
         creator = User.create(google_id="creator-user", name="Creator", privilege_level=1)
         db.session.add(
@@ -86,7 +100,7 @@ def test_adventure_response_excludes_requested_room(client, app):
                 short_description="Should not expose room",
                 user_id=creator.id,
                 max_players=5,
-                date=date(2026, 3, 20),
+                date=future_date,
                 tags=None,
                 is_waitinglist=0,
             )
@@ -94,7 +108,7 @@ def test_adventure_response_excludes_requested_room(client, app):
         db.session.commit()
 
     response = client.get(
-        "/api/adventures?week_start=2026-03-16&week_end=2026-03-22",
+        f"/api/adventures?week_start={week_start}&week_end={week_end}",
         base_url="https://localhost",
     )
 
