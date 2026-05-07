@@ -428,7 +428,6 @@ def test_helper_can_create_session_in_their_event(client, app, admin_user_id):
             "start_time": time(14, 0).isoformat(),
             "duration_minutes": 45,
             "max_players": 5,
-            "placement_mode": "delayed",
         },
         base_url="https://localhost",
     )
@@ -440,7 +439,57 @@ def test_helper_can_create_session_in_their_event(client, app, admin_user_id):
     assert data["created_by_user_id"] == helper_id
 
 
-def test_event_admin_cannot_patch_event_metadata(client, app, admin_user_id):
+def test_session_inherits_event_level_settings(client, app, admin_user_id):
+    with app.app_context():
+        helper = User.create(google_id="inherit-helper", name="Inherit Helper", privilege_level=0)
+        event = Event(
+            title="Inherited Settings Event",
+            created_by_user_id=admin_user_id,
+            placement_mode=Event.PLACEMENT_IMMEDIATE,
+            release_assignments=True,
+            notification_days_before=3,
+        )
+        db.session.add(event)
+        db.session.flush()
+        event_day = EventDay(event_id=event.id, date=date(2026, 9, 13), label="Sunday")
+        db.session.add(event_day)
+        db.session.flush()
+        event_table = EventTable(event_day_id=event_day.id, name="Table I")
+        db.session.add(event_table)
+        db.session.add(
+            EventMembership(
+                event_id=event.id,
+                user_id=helper.id,
+                role=EventMembership.ROLE_EVENT_HELPER,
+            )
+        )
+        db.session.commit()
+        helper_id = helper.id
+        event_day_id = event_day.id
+        event_table_id = event_table.id
+
+    login(client, helper_id)
+    response = client.post(
+        f"/api/event-days/{event_day_id}/sessions",
+        json={
+            "title": "Inherited Session",
+            "short_description": "Should inherit event settings",
+            "event_table_id": event_table_id,
+            "start_time": time(15, 0).isoformat(),
+            "duration_minutes": 60,
+            "max_players": 4,
+        },
+        base_url="https://localhost",
+    )
+
+    assert response.status_code == 201
+    data = response.get_json()
+    assert data["placement_mode"] == Event.PLACEMENT_IMMEDIATE
+    assert data["release_assignments"] is True
+    assert data["release_reminder_days"] == 3
+
+
+def test_event_admin_can_patch_event_metadata(client, app, admin_user_id):
     with app.app_context():
         event_admin = User.create(google_id="metadata-event-admin", name="Metadata Event Admin", privilege_level=0)
         event = Event(title="Locked Metadata", created_by_user_id=admin_user_id)
@@ -464,7 +513,9 @@ def test_event_admin_cannot_patch_event_metadata(client, app, admin_user_id):
         base_url="https://localhost",
     )
 
-    assert response.status_code == 401
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["title"] == "Changed Title"
 
 
 def test_session_creation_rejects_overlapping_times_on_same_table(client, app, admin_user_id):
@@ -744,7 +795,11 @@ def test_event_admin_can_delete_event_session(client, app, admin_user_id):
 def test_helper_can_add_manual_guest_participant(client, app, admin_user_id):
     with app.app_context():
         helper = User.create(google_id="manual-helper", name="Manual Helper", privilege_level=0)
-        event = Event(title="Manual Guest Event", created_by_user_id=admin_user_id)
+        event = Event(
+            title="Manual Guest Event",
+            created_by_user_id=admin_user_id,
+            placement_mode=Event.PLACEMENT_IMMEDIATE,
+        )
         db.session.add(event)
         db.session.flush()
         event_day = EventDay(event_id=event.id, date=date(2026, 12, 1), label="Day 1")
@@ -847,7 +902,11 @@ def test_manual_user_add_blocks_when_overlapping_placed_session_exists(client, a
     with app.app_context():
         helper = User.create(google_id="conflict-helper", name="Conflict Helper", privilege_level=0)
         player = User.create(google_id="conflict-player", name="Conflict Player", privilege_level=0)
-        event = Event(title="Conflict Event", created_by_user_id=admin_user_id)
+        event = Event(
+            title="Conflict Event",
+            created_by_user_id=admin_user_id,
+            placement_mode=Event.PLACEMENT_IMMEDIATE,
+        )
         db.session.add(event)
         db.session.flush()
         event_day = EventDay(event_id=event.id, date=date(2026, 12, 3), label="Day 1")
@@ -1097,7 +1156,7 @@ def test_promote_next_skips_conflict_and_promotes_next_eligible(client, app, adm
     with app.app_context():
         blocked = db.session.get(EventSessionParticipant, first_waitlist_id)
         assert blocked is not None
-        assert blocked.status == EventSessionParticipant.STATUS_BLOCKED_CONFLICT
+        assert blocked.status == EventSessionParticipant.STATUS_WAITLIST
 
 
 def test_outsider_cannot_mutate_participants(client, app, admin_user_id, normal_user_id):
@@ -1619,14 +1678,18 @@ def test_process_placements_marks_conflicts(client, app, admin_user_id, monkeypa
                 db.select(EventSessionParticipant).where(EventSessionParticipant.event_session_id == target_id)
             ).scalars().all()
         }
-    assert statuses[conflict_id] == EventSessionParticipant.STATUS_BLOCKED_CONFLICT
+    assert statuses[conflict_id] == EventSessionParticipant.STATUS_WAITLIST
     assert statuses[clear_id] == EventSessionParticipant.STATUS_PLACED
 
 
 def test_process_placements_rejects_immediate_session(client, app, admin_user_id):
     from datetime import time as T
     with app.app_context():
-        event = Event(title='Immediate PP Event', created_by_user_id=admin_user_id)
+        event = Event(
+            title='Immediate PP Event',
+            created_by_user_id=admin_user_id,
+            placement_mode=Event.PLACEMENT_IMMEDIATE,
+        )
         db.session.add(event)
         db.session.flush()
         day = EventDay(event_id=event.id, date=date(2027, 1, 13), label='Day 1')
@@ -1717,7 +1780,11 @@ def test_player_can_self_signup_and_cancel(client, app, admin_user_id, monkeypat
     monkeypatch.setattr('app.api.send_fcm_notification', lambda *a, **kw: None)
     with app.app_context():
         player = User.create(google_id='self-signup-player', name='Self Signup Player', privilege_level=0)
-        event = Event(title='Self Signup Event', created_by_user_id=admin_user_id)
+        event = Event(
+            title='Self Signup Event',
+            created_by_user_id=admin_user_id,
+            placement_mode=Event.PLACEMENT_IMMEDIATE,
+        )
         db.session.add(event)
         db.session.flush()
         day = EventDay(event_id=event.id, date=date(2027, 2, 2), label='Day 1')
@@ -1782,3 +1849,106 @@ def test_player_self_signup_delayed_goes_waitlist(client, app, admin_user_id, mo
     signup_response = client.post(f'/api/event-sessions/{session_id}/signup', base_url='https://localhost')
     assert signup_response.status_code == 200
     assert signup_response.get_json()['status'] == EventSessionParticipant.STATUS_WAITLIST
+
+
+def test_player_second_same_day_signup_goes_waitlist(client, app, admin_user_id, monkeypatch):
+    monkeypatch.setattr('app.api.send_fcm_notification', lambda *a, **kw: None)
+    with app.app_context():
+        player = User.create(google_id='self-signup-second', name='Self Signup Second', privilege_level=0)
+        event = Event(
+            title='Self Signup Second Event',
+            created_by_user_id=admin_user_id,
+            placement_mode=Event.PLACEMENT_IMMEDIATE,
+        )
+        db.session.add(event)
+        db.session.flush()
+        day = EventDay(event_id=event.id, date=date(2027, 2, 4), label='Day 1')
+        db.session.add(day)
+        db.session.flush()
+        table_1 = EventTable(event_day_id=day.id, name='Table S1')
+        table_2 = EventTable(event_day_id=day.id, name='Table S2')
+        db.session.add_all([table_1, table_2])
+        db.session.flush()
+        first_session = EventSession(
+            title='First Session',
+            short_description='First',
+            event_day_id=day.id,
+            event_table_id=table_1.id,
+            start_time=time(10, 0),
+            duration_minutes=60,
+            max_players=2,
+        )
+        second_session = EventSession(
+            title='Second Session',
+            short_description='Second',
+            event_day_id=day.id,
+            event_table_id=table_2.id,
+            start_time=time(13, 0),
+            duration_minutes=60,
+            max_players=2,
+        )
+        db.session.add_all([first_session, second_session])
+        db.session.commit()
+        player_id = player.id
+        first_session_id = first_session.id
+        second_session_id = second_session.id
+
+    login(client, player_id)
+    first_response = client.post(f'/api/event-sessions/{first_session_id}/signup', base_url='https://localhost')
+    assert first_response.status_code == 200
+    assert first_response.get_json()['status'] == EventSessionParticipant.STATUS_PLACED
+
+    second_response = client.post(f'/api/event-sessions/{second_session_id}/signup', base_url='https://localhost')
+    assert second_response.status_code == 200
+    assert second_response.get_json()['status'] == EventSessionParticipant.STATUS_WAITLIST
+
+
+def test_player_same_time_signup_is_blocked(client, app, admin_user_id, monkeypatch):
+    monkeypatch.setattr('app.api.send_fcm_notification', lambda *a, **kw: None)
+    with app.app_context():
+        player = User.create(google_id='self-signup-overlap', name='Self Signup Overlap', privilege_level=0)
+        event = Event(
+            title='Self Signup Overlap Event',
+            created_by_user_id=admin_user_id,
+            placement_mode=Event.PLACEMENT_IMMEDIATE,
+        )
+        db.session.add(event)
+        db.session.flush()
+        day = EventDay(event_id=event.id, date=date(2027, 2, 5), label='Day 1')
+        db.session.add(day)
+        db.session.flush()
+        table_1 = EventTable(event_day_id=day.id, name='Table O1')
+        table_2 = EventTable(event_day_id=day.id, name='Table O2')
+        db.session.add_all([table_1, table_2])
+        db.session.flush()
+        first_session = EventSession(
+            title='Overlap First',
+            short_description='First overlap',
+            event_day_id=day.id,
+            event_table_id=table_1.id,
+            start_time=time(14, 0),
+            duration_minutes=60,
+            max_players=2,
+        )
+        overlap_session = EventSession(
+            title='Overlap Second',
+            short_description='Second overlap',
+            event_day_id=day.id,
+            event_table_id=table_2.id,
+            start_time=time(14, 30),
+            duration_minutes=60,
+            max_players=2,
+        )
+        db.session.add_all([first_session, overlap_session])
+        db.session.commit()
+        player_id = player.id
+        first_session_id = first_session.id
+        overlap_session_id = overlap_session.id
+
+    login(client, player_id)
+    first_response = client.post(f'/api/event-sessions/{first_session_id}/signup', base_url='https://localhost')
+    assert first_response.status_code == 200
+    assert first_response.get_json()['status'] == EventSessionParticipant.STATUS_PLACED
+
+    overlap_response = client.post(f'/api/event-sessions/{overlap_session_id}/signup', base_url='https://localhost')
+    assert overlap_response.status_code == 409

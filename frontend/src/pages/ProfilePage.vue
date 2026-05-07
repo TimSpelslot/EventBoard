@@ -1,9 +1,10 @@
 <template>
-  <q-page class="row items-center justify-evenly">
-    <q-form @submit="save" class="col-8">
-      <q-card>
+  <q-page class="profile-page q-pa-lg">
+    <q-form @submit="save" class="profile-form">
+      <q-card flat bordered>
         <q-card-section class="q-gutter-lg">
-          <div class="text-h6">User profile</div>
+          <div class="text-h6">Profile</div>
+          <div class="text-caption text-grey-7">Manage your display name and notification preferences.</div>
           <q-input v-model="display_name" label="Display name" />
           <q-separator class="q-my-md" />
 <div class="text-subtitle1 text-weight-bold">Notification Preferences</div>
@@ -30,8 +31,8 @@
 
   <q-item tag="label" v-ripple>
     <q-item-section>
-      <q-item-label>3-day signup confirmation</q-item-label>
-      <q-item-label caption>Reminder 3 days before Immediate/Automatic events</q-item-label>
+      <q-item-label>Early signup reminder</q-item-label>
+      <q-item-label caption>Reminder three days before session allocation</q-item-label>
     </q-item-section>
     <q-item-section side>
       <q-toggle v-model="notify_signup_confirmation_3d" color="primary" />
@@ -50,7 +51,7 @@
 </q-list>
         </q-card-section>
         <q-card-actions class="row justify-between">
-          <q-btn label="Back" class="q-ma-md bg-blue-grey-7" to="/" />
+          <q-btn label="Back" class="q-ma-md" color="secondary" to="/" />
           <q-btn type="submit" label="Save" color="primary" class="q-ma-md" />
         </q-card-actions>
       </q-card>
@@ -100,3 +101,14 @@ export default defineComponent({
   },
 });
 </script>
+
+<style scoped>
+.profile-page {
+  display: flex;
+  justify-content: center;
+}
+
+.profile-form {
+  width: min(760px, 100%);
+}
+</style>

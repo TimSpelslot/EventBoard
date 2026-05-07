@@ -170,9 +170,16 @@ class EventType(db.Model):
 class Event(db.Model):
     __tablename__ = 'events'
 
+    PLACEMENT_IMMEDIATE = 'immediate'
+    PLACEMENT_DELAYED = 'delayed'
+    VALID_PLACEMENT_MODES = (PLACEMENT_IMMEDIATE, PLACEMENT_DELAYED)
+
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     title = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text, nullable=True)
+    image_url = db.Column(db.String(1024), nullable=True)
+    placement_mode = db.Column(db.String(32), nullable=False, default=PLACEMENT_DELAYED)
+    release_assignments = db.Column(db.Boolean, nullable=False, default=False)
     notification_days_before = db.Column(db.Integer, nullable=False, default=2)
     allow_event_admin_notifications = db.Column(db.Boolean, nullable=False, default=False)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
@@ -216,6 +223,8 @@ class EventTable(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     event_day_id = db.Column(db.Integer, db.ForeignKey('event_days.id'), nullable=False)
     name = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    image_url = db.Column(db.String(1024), nullable=True)
     sort_order = db.Column(db.Integer, nullable=False, default=0)
 
     event_day = db.relationship('EventDay', back_populates='tables')
@@ -282,7 +291,8 @@ class EventSession(db.Model):
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     title = db.Column(db.String(255), nullable=False)
-    short_description = db.Column(db.Text, nullable=False)
+    short_description = db.Column(db.Text, nullable=True)
+    gamemaster_name = db.Column(db.String(255), nullable=True)
     event_day_id = db.Column(db.Integer, db.ForeignKey('event_days.id'), nullable=False)
     event_table_id = db.Column(db.Integer, db.ForeignKey('event_tables.id'), nullable=False)
     host_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)

@@ -32,7 +32,7 @@
         :key="event.id"
         group="events"
         expand-separator
-        header-class="bg-grey-2"
+        :header-class="$q.dark.isActive ? 'event-header-dark' : 'event-header-light'"
         class="rounded-borders overflow-hidden"
       >
         <template #header>
@@ -45,7 +45,7 @@
           <q-item-section side v-if="canAddDays(event)">
             <q-btn dense flat color="primary" icon="event_available" label="Add Day" @click.stop="openDayDialog(event)" />
           </q-item-section>
-          <q-item-section side v-if="isSuperAdmin">
+          <q-item-section side v-if="canCreateEvents">
             <q-btn dense flat color="grey" icon="edit" @click.stop="openEventEditDialog(event)" />
           </q-item-section>
           <q-item-section side>
@@ -99,11 +99,14 @@
                 <q-chip
                   v-for="table in sortedTables(day.tables)"
                   :key="table.id"
-                  color="grey-3"
-                  text-color="black"
-                  class="q-pr-xs"
+                  :class="$q.dark.isActive ? 'table-chip-dark' : 'table-chip-light'"
+                  class="q-pr-xs table-chip"
                 >
+                  <q-avatar v-if="table.image_url" rounded>
+                    <img :src="table.image_url" alt="Table" />
+                  </q-avatar>
                   <span>{{ table.name }}</span>
+                  <span v-if="table.description" class="q-ml-xs text-caption">- {{ table.description }}</span>
                   <q-btn
                     v-if="canAddTables(event)"
                     dense
@@ -130,15 +133,15 @@
                           <div class="text-caption text-grey-7 q-mt-xs">
                             {{ formatSessionMeta(session, day) }}
                           </div>
-                          <div class="text-body2 q-mt-sm">{{ session.short_description }}</div>
+                          <div v-if="session.short_description" class="text-body2 q-mt-sm">{{ session.short_description }}</div>
+                          <div v-if="session.gamemaster_name" class="text-caption q-mt-xs">Gamemaster: {{ session.gamemaster_name }}</div>
                         </div>
                         <div class="column q-gutter-xs session-actions">
                           <q-btn dense color="primary" icon="group" label="Participants" @click="openParticipants(session, event, day)" />
                           <q-btn dense outline color="secondary" icon="edit" label="Edit" @click="openSessionEditDialog(event, day, session)" />
-                          <q-btn dense outline color="primary" icon="manage_search" label="Add User" @click="openUserDialog(session, event, day)" />
                           <q-btn dense outline color="secondary" icon="person_add" label="Add Walk-in" @click="openGuestDialog(session, event, day)" />
                           <q-btn
-                            v-if="session.placement_mode === 'delayed' && canManageSessions(event)"
+                            v-if="event.placement_mode === 'delayed' && canManageSessions(event)"
                             dense
                             outline
                             color="positive"
@@ -164,11 +167,14 @@
             </div>
           </q-card-section>
 
-          <q-separator v-if="isSuperAdmin" />
-          <q-card-section v-if="isSuperAdmin" class="q-pt-sm">
+          <q-separator v-if="canCreateEvents" />
+          <q-card-section v-if="canCreateEvents" class="q-pt-sm">
             <div class="row items-center justify-between q-mb-sm">
               <div class="text-subtitle2 text-grey-7">Members ({{ event.memberships.length }})</div>
               <q-btn dense flat color="primary" icon="person_add" label="Add Member" @click="openMembershipDialog(event)" />
+            </div>
+            <div class="text-caption text-grey-7 q-mb-sm">
+              Set per-event permissions here (Event Admin or Event Helper). Global privilege levels are managed in Approve users.
             </div>
             <div v-if="event.memberships.length > 0" class="row q-gutter-xs">
               <q-chip
@@ -198,7 +204,6 @@
           </div>
           <div class="row q-gutter-sm">
             <q-btn outline color="primary" icon="refresh" label="Refresh" :loading="participantsDialog.loading" @click="refreshParticipants" />
-            <q-btn color="primary" icon="manage_search" label="Add User" @click="openUserDialog(participantsDialog.session, participantsDialog.event, participantsDialog.day)" />
             <q-btn color="secondary" icon="person_add" label="Add Walk-in" @click="openGuestDialog(participantsDialog.session, participantsDialog.event, participantsDialog.day)" />
             <q-btn
               color="accent"
@@ -220,9 +225,6 @@
             </div>
             <div class="col-auto">
               <q-chip color="warning" text-color="black">Waitlist {{ statusCount('waitlist') }}</q-chip>
-            </div>
-            <div class="col-auto">
-              <q-chip color="negative" text-color="white">Blocked {{ statusCount('blocked_conflict') }}</q-chip>
             </div>
             <div class="col-auto">
               <q-btn color="primary" icon="arrow_upward" label="Promote Next" :loading="participantsDialog.promoting" @click="promoteNext" />
@@ -268,6 +270,14 @@
             <template #body-cell-actions="props">
               <q-td :props="props">
                 <div class="row q-gutter-sm">
+                  <q-btn
+                    v-if="props.row.user_id"
+                    dense
+                    flat
+                    color="accent"
+                    icon="campaign"
+                    @click="openParticipantNotifyDialog(props.row)"
+                  />
                   <q-btn dense flat color="negative" icon="delete" @click="removeParticipant(props.row)" />
                 </div>
               </q-td>
@@ -298,59 +308,32 @@
       </q-card>
     </q-dialog>
 
-    <q-dialog v-model="userDialog.open">
-      <q-card style="min-width: 520px">
-        <q-card-section class="text-h6">Add Existing User</q-card-section>
-        <q-card-section class="q-gutter-md">
-          <div class="row q-col-gutter-sm items-end">
-            <div class="col">
-              <q-input
-                v-model="userDialog.search"
-                label="Search display name"
-                hint="Find an existing signed-in player"
-                @keyup.enter="searchUsers"
-              />
-            </div>
-            <div class="col-auto">
-              <q-btn color="primary" icon="search" label="Search" :loading="userDialog.searching" @click="searchUsers" />
-            </div>
-          </div>
-
-          <q-select
-            v-model="userDialog.form.user_id"
-            :options="userDialog.results"
-            emit-value
-            map-options
-            label="Matching user"
-          />
-          <q-select
-            v-model="userDialog.form.status"
-            :options="participantStatusOptions"
-            emit-value
-            map-options
-            label="Initial status"
-          />
-          <q-input v-model="userDialog.form.comment" label="Comment" type="textarea" autogrow />
-        </q-card-section>
-        <q-card-actions align="right">
-          <q-btn flat label="Cancel" v-close-popup />
-          <q-btn color="primary" label="Add User" :loading="userDialog.saving" @click="submitExistingUser" />
-        </q-card-actions>
-      </q-card>
-    </q-dialog>
-
     <q-dialog v-model="notifyDialog.open">
       <q-card style="min-width: 460px">
         <q-card-section class="text-h6">Notify Session Participants</q-card-section>
         <q-card-section class="q-gutter-md">
           <q-input v-model="notifyDialog.form.title" label="Title" />
           <q-input v-model="notifyDialog.form.body" label="Message" type="textarea" autogrow />
-          <q-toggle v-model="notifyDialog.form.include_waitlist" label="Include waitlist" />
-          <q-toggle v-model="notifyDialog.form.include_blocked" label="Include blocked participants" />
+          <q-toggle v-model="notifyDialog.form.include_waitlist" label="Include waiting list" />
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="Cancel" v-close-popup />
           <q-btn color="accent" label="Send" :loading="notifyDialog.saving" @click="submitNotify" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <q-dialog v-model="participantNotifyDialog.open">
+      <q-card style="min-width: 460px">
+        <q-card-section class="text-h6">Notify Participant</q-card-section>
+        <q-card-section class="q-gutter-md">
+          <div class="text-caption text-grey-7">Recipient: {{ participantNotifyDialog.recipientName || 'Unknown user' }}</div>
+          <q-input v-model="participantNotifyDialog.form.title" label="Title" />
+          <q-input v-model="participantNotifyDialog.form.body" label="Message" type="textarea" autogrow />
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" v-close-popup />
+          <q-btn color="accent" label="Send" :loading="participantNotifyDialog.saving" @click="submitParticipantNotify" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -403,13 +386,22 @@
         <q-card-section class="q-gutter-md">
           <q-input v-model="eventDialog.form.title" label="Title" autofocus />
           <q-input v-model="eventDialog.form.description" label="Description" type="textarea" autogrow />
+          <q-input v-model="eventDialog.form.image_url" label="Event image URL (optional)" />
           <q-select
             v-model="eventDialog.form.notification_days_before"
             :options="notificationLeadOptions"
             emit-value
             map-options
-            label="Default reminder lead time"
+            label="Reminder lead time"
           />
+          <q-select
+            v-model="eventDialog.form.placement_mode"
+            :options="placementModeOptions"
+            emit-value
+            map-options
+            label="Placement mode"
+          />
+          <q-toggle v-model="eventDialog.form.release_assignments" label="Assignments released immediately" />
           <q-toggle v-model="eventDialog.form.allow_event_admin_notifications" label="Allow event-admin notifications" />
         </q-card-section>
         <q-card-actions align="right">
@@ -456,6 +448,8 @@
         <q-card-section class="text-h6">{{ tableDialog.editingTableId ? 'Edit Table' : 'Add Table' }}</q-card-section>
         <q-card-section class="q-gutter-md">
           <q-input v-model="tableDialog.form.name" label="Table name" autofocus />
+          <q-input v-model="tableDialog.form.description" label="Table description (optional)" type="textarea" autogrow />
+          <q-input v-model="tableDialog.form.image_url" label="Table image URL (optional)" />
           <q-input v-model.number="tableDialog.form.sort_order" type="number" label="Sort order" />
         </q-card-section>
         <q-card-actions align="right">
@@ -479,7 +473,7 @@
         <q-card-section class="text-h6">{{ sessionDialog.editingSessionId ? 'Edit Session' : 'Add Session' }}</q-card-section>
         <q-card-section class="q-gutter-md">
           <q-input v-model="sessionDialog.form.title" label="Title" autofocus />
-          <q-input v-model="sessionDialog.form.short_description" label="Description" type="textarea" autogrow />
+          <q-input v-model="sessionDialog.form.short_description" label="Description (optional)" type="textarea" autogrow />
           <q-select
             v-model="sessionDialog.form.event_table_id"
             :options="sessionDialog.tableOptions"
@@ -487,30 +481,18 @@
             map-options
             label="Table"
           />
-          <q-input v-model="sessionDialog.form.start_time" label="Start time" mask="##:##" hint="24h format, e.g. 14:30" />
           <div class="row q-col-gutter-md">
-            <div class="col-6">
+            <div class="col-4">
+              <q-input v-model="sessionDialog.form.start_time" label="Start time" mask="##:##" hint="24h" />
+            </div>
+            <div class="col-4">
               <q-input v-model.number="sessionDialog.form.duration_minutes" type="number" label="Duration (minutes)" />
             </div>
-            <div class="col-6">
+            <div class="col-4">
               <q-input v-model.number="sessionDialog.form.max_players" type="number" label="Capacity" />
             </div>
           </div>
-          <q-select
-            v-model="sessionDialog.form.placement_mode"
-            :options="placementModeOptions"
-            emit-value
-            map-options
-            label="Placement mode"
-          />
-          <q-toggle v-model="sessionDialog.form.release_assignments" label="Assignments released immediately" />
-          <q-select
-            v-model="sessionDialog.form.release_reminder_days"
-            :options="notificationLeadOptions"
-            emit-value
-            map-options
-            label="Reminder lead time"
-          />
+          <q-input v-model="sessionDialog.form.gamemaster_name" label="Gamemaster (optional)" />
         </q-card-section>
         <q-card-actions align="right">
           <q-btn
@@ -545,12 +527,15 @@ type EventMembership = {
 type EventTable = {
   id: number;
   name: string;
+  description?: string | null;
+  image_url?: string | null;
 };
 
 type EventSession = {
   id: number;
   title: string;
-  short_description: string;
+  short_description?: string | null;
+  gamemaster_name?: string | null;
   event_table_id: number;
   host_user_id: number | null;
   max_players: number;
@@ -571,7 +556,10 @@ type ManagedEvent = {
   id: number;
   title: string;
   description?: string | null;
+  image_url?: string | null;
   notification_days_before: number;
+  placement_mode: string;
+  release_assignments: boolean;
   allow_event_admin_notifications: boolean;
   memberships: EventMembership[];
   days: EventDay[];
@@ -585,11 +573,6 @@ type Participant = {
   comment?: string | null;
   user?: { id: number; display_name: string };
   guest_player?: { id: number; display_name: string };
-};
-
-type SearchResultOption = {
-  label: string;
-  value: number;
 };
 
 export default defineComponent({
@@ -612,7 +595,6 @@ export default defineComponent({
       participantStatusOptions: [
         { label: 'Placed', value: 'placed' },
         { label: 'Waitlist', value: 'waitlist' },
-        { label: 'Blocked conflict', value: 'blocked_conflict' },
         { label: 'Cancelled', value: 'cancelled' },
       ],
       participantColumns: [
@@ -647,19 +629,6 @@ export default defineComponent({
           comment: '',
         },
       },
-      userDialog: {
-        open: false,
-        searching: false,
-        saving: false,
-        session: null as EventSession | null,
-        search: '',
-        results: [] as SearchResultOption[],
-        form: {
-          user_id: null as number | null,
-          status: 'placed',
-          comment: '',
-        },
-      },
       notifyDialog: {
         open: false,
         saving: false,
@@ -669,7 +638,16 @@ export default defineComponent({
           title: '',
           body: '',
           include_waitlist: true,
-          include_blocked: false,
+        },
+      },
+      participantNotifyDialog: {
+        open: false,
+        saving: false,
+        participant: null as Participant | null,
+        recipientName: '',
+        form: {
+          title: '',
+          body: '',
         },
       },
       eventDialog: {
@@ -680,7 +658,10 @@ export default defineComponent({
         form: {
           title: '',
           description: '',
+          image_url: '',
           notification_days_before: 2,
+          placement_mode: 'delayed',
+          release_assignments: false,
           allow_event_admin_notifications: false,
         },
       },
@@ -705,6 +686,8 @@ export default defineComponent({
         day: null as EventDay | null,
         form: {
           name: '',
+          description: '',
+          image_url: '',
           sort_order: 0,
         },
       },
@@ -719,13 +702,11 @@ export default defineComponent({
         form: {
           title: '',
           short_description: '',
+          gamemaster_name: '',
           event_table_id: null as number | null,
           start_time: '',
           duration_minutes: 60,
           max_players: 5,
-          placement_mode: 'delayed',
-          release_assignments: false,
-          release_reminder_days: 2,
         },
       },
       membershipDialog: {
@@ -828,7 +809,10 @@ export default defineComponent({
       this.eventDialog.form = {
         title: '',
         description: '',
+        image_url: '',
         notification_days_before: 2,
+        placement_mode: 'delayed',
+        release_assignments: false,
         allow_event_admin_notifications: false,
       };
     },
@@ -838,7 +822,10 @@ export default defineComponent({
       this.eventDialog.form = {
         title: event.title,
         description: event.description || '',
+        image_url: event.image_url || '',
         notification_days_before: event.notification_days_before ?? 2,
+        placement_mode: event.placement_mode ?? 'delayed',
+        release_assignments: event.release_assignments ?? false,
         allow_event_admin_notifications: event.allow_event_admin_notifications ?? false,
       };
     },
@@ -851,7 +838,10 @@ export default defineComponent({
         const payload = {
           title: this.eventDialog.form.title.trim(),
           description: this.eventDialog.form.description || null,
+          image_url: this.eventDialog.form.image_url || null,
           notification_days_before: this.eventDialog.form.notification_days_before,
+          placement_mode: this.eventDialog.form.placement_mode,
+          release_assignments: this.eventDialog.form.release_assignments,
           allow_event_admin_notifications: this.eventDialog.form.allow_event_admin_notifications,
         };
         if (this.eventDialog.editingEventId) {
@@ -867,22 +857,6 @@ export default defineComponent({
         this.$q.notify({ type: 'negative', message: this.$extractErrors(error).join(', ') || `Failed to ${this.eventDialog.editingEventId ? 'update' : 'create'} event` });
       } finally {
         this.eventDialog.saving = false;
-      }
-    },
-    async deleteEvent() {
-      if (!this.eventDialog.editingEventId) {
-        return;
-      }
-      this.eventDialog.deleting = true;
-      try {
-        await this.$api.delete(`/api/events/${this.eventDialog.editingEventId}`);
-        this.$q.notify({ type: 'positive', message: 'Event deleted' });
-        this.eventDialog.open = false;
-        await this.fetchEvents();
-      } catch (error) {
-        this.$q.notify({ type: 'negative', message: this.$extractErrors(error).join(', ') || 'Failed to delete event' });
-      } finally {
-        this.eventDialog.deleting = false;
       }
     },
     async deleteEvent() {
@@ -1053,6 +1027,8 @@ export default defineComponent({
       this.tableDialog.day = day;
       this.tableDialog.form = {
         name: '',
+        description: '',
+        image_url: '',
         sort_order: (day.tables || []).length,
       };
     },
@@ -1063,6 +1039,8 @@ export default defineComponent({
       this.tableDialog.day = day;
       this.tableDialog.form = {
         name: table.name,
+        description: table.description || '',
+        image_url: table.image_url || '',
         sort_order: (table as EventTable & { sort_order?: number }).sort_order || 0,
       };
     },
@@ -1074,6 +1052,8 @@ export default defineComponent({
       try {
         const payload = {
           name: this.tableDialog.form.name.trim(),
+          description: this.tableDialog.form.description || null,
+          image_url: this.tableDialog.form.image_url || null,
           sort_order: this.tableDialog.form.sort_order,
         };
         if (this.tableDialog.editingTableId) {
@@ -1116,13 +1096,11 @@ export default defineComponent({
       this.sessionDialog.form = {
         title: '',
         short_description: '',
+        gamemaster_name: '',
         event_table_id: day.tables[0]?.id ?? null,
         start_time: '',
         duration_minutes: 60,
         max_players: 5,
-        placement_mode: 'delayed',
-        release_assignments: false,
-        release_reminder_days: event.notification_days_before || 2,
       };
     },
     openSessionEditDialog(event: ManagedEvent, day: EventDay, session: EventSession) {
@@ -1133,32 +1111,28 @@ export default defineComponent({
       this.sessionDialog.tableOptions = (day.tables || []).map((table) => ({ label: table.name, value: table.id }));
       this.sessionDialog.form = {
         title: session.title,
-        short_description: session.short_description,
+        short_description: session.short_description || '',
+        gamemaster_name: session.gamemaster_name || '',
         event_table_id: session.event_table_id,
         start_time: session.start_time.slice(0, 5),
         duration_minutes: session.duration_minutes,
         max_players: session.max_players,
-        placement_mode: (session as EventSession & { placement_mode?: string }).placement_mode || 'delayed',
-        release_assignments: (session as EventSession & { release_assignments?: boolean }).release_assignments || false,
-        release_reminder_days: (session as EventSession & { release_reminder_days?: number }).release_reminder_days || event.notification_days_before || 2,
       };
     },
     async submitSession() {
-      if (!this.sessionDialog.day || !this.sessionDialog.form.title.trim() || !this.sessionDialog.form.short_description.trim() || !this.sessionDialog.form.event_table_id || !this.sessionDialog.form.start_time) {
+      if (!this.sessionDialog.day || !this.sessionDialog.form.title.trim() || !this.sessionDialog.form.event_table_id || !this.sessionDialog.form.start_time) {
         return;
       }
       this.sessionDialog.saving = true;
       try {
         const payload = {
           title: this.sessionDialog.form.title.trim(),
-          short_description: this.sessionDialog.form.short_description.trim(),
+          short_description: this.sessionDialog.form.short_description?.trim() || null,
+          gamemaster_name: this.sessionDialog.form.gamemaster_name?.trim() || null,
           event_table_id: this.sessionDialog.form.event_table_id,
           start_time: this.sessionDialog.form.start_time,
           duration_minutes: this.sessionDialog.form.duration_minutes,
           max_players: this.sessionDialog.form.max_players,
-          placement_mode: this.sessionDialog.form.placement_mode,
-          release_assignments: this.sessionDialog.form.release_assignments,
-          release_reminder_days: this.sessionDialog.form.release_reminder_days,
         };
         if (this.sessionDialog.editingSessionId) {
           await this.$api.patch(`/api/event-sessions/${this.sessionDialog.editingSessionId}`, payload);
@@ -1245,42 +1219,6 @@ export default defineComponent({
         comment: '',
       };
     },
-    openUserDialog(session: EventSession | null, event: ManagedEvent | null, day: EventDay | null) {
-      if (!session || !event || !day) {
-        return;
-      }
-      this.userDialog.open = true;
-      this.userDialog.session = session;
-      this.userDialog.search = '';
-      this.userDialog.results = [];
-      this.userDialog.form = {
-        user_id: null,
-        status: 'placed',
-        comment: '',
-      };
-    },
-    async searchUsers() {
-      if (!this.userDialog.session) {
-        return;
-      }
-      this.userDialog.searching = true;
-      try {
-        const response = await this.$api.get(`/api/event-sessions/${this.userDialog.session.id}/eligible-users`, {
-          params: { q: this.userDialog.search || '' },
-        });
-        this.userDialog.results = (response.data || []).map((user: { id: number; display_name: string }) => ({
-          label: user.display_name,
-          value: user.id,
-        }));
-        if (this.userDialog.results.length === 1) {
-          this.userDialog.form.user_id = this.userDialog.results[0].value;
-        }
-      } catch (error) {
-        this.$q.notify({ type: 'negative', message: this.$extractErrors(error).join(', ') || 'Failed to search users' });
-      } finally {
-        this.userDialog.searching = false;
-      }
-    },
     async submitGuest() {
       if (!this.guestDialog.session || !this.guestDialog.form.display_name.trim()) {
         return;
@@ -1301,28 +1239,6 @@ export default defineComponent({
         this.$q.notify({ type: 'negative', message: this.$extractErrors(error).join(', ') || 'Failed to add walk-in player' });
       } finally {
         this.guestDialog.saving = false;
-      }
-    },
-    async submitExistingUser() {
-      if (!this.userDialog.session || !this.userDialog.form.user_id) {
-        return;
-      }
-      this.userDialog.saving = true;
-      try {
-        await this.$api.post(`/api/event-sessions/${this.userDialog.session.id}/participants/users`, {
-          user_id: this.userDialog.form.user_id,
-          status: this.userDialog.form.status,
-          comment: this.userDialog.form.comment || null,
-        });
-        this.$q.notify({ type: 'positive', message: 'User added to session' });
-        this.userDialog.open = false;
-        if (this.participantsDialog.open && this.participantsDialog.session?.id === this.userDialog.session.id) {
-          await this.refreshParticipants();
-        }
-      } catch (error) {
-        this.$q.notify({ type: 'negative', message: this.$extractErrors(error).join(', ') || 'Failed to add user to session' });
-      } finally {
-        this.userDialog.saving = false;
       }
     },
     async updateParticipantStatus(participant: Participant, status: string) {
@@ -1370,7 +1286,18 @@ export default defineComponent({
         title: `Update for ${session.title}`,
         body: '',
         include_waitlist: true,
-        include_blocked: false,
+      };
+    },
+    openParticipantNotifyDialog(participant: Participant) {
+      if (!participant.user_id) {
+        return;
+      }
+      this.participantNotifyDialog.open = true;
+      this.participantNotifyDialog.participant = participant;
+      this.participantNotifyDialog.recipientName = this.participantName(participant);
+      this.participantNotifyDialog.form = {
+        title: `Session update for ${this.participantName(participant)}`,
+        body: '',
       };
     },
     async submitNotify() {
@@ -1386,6 +1313,24 @@ export default defineComponent({
         this.$q.notify({ type: 'negative', message: this.$extractErrors(error).join(', ') || 'Failed to notify participants' });
       } finally {
         this.notifyDialog.saving = false;
+      }
+    },
+    async submitParticipantNotify() {
+      if (!this.participantNotifyDialog.participant?.id) {
+        return;
+      }
+      this.participantNotifyDialog.saving = true;
+      try {
+        const response = await this.$api.post(
+          `/api/event-sessions/participants/${this.participantNotifyDialog.participant.id}/notify`,
+          this.participantNotifyDialog.form,
+        );
+        this.$q.notify({ type: 'positive', message: response.data?.message || 'Participant notified' });
+        this.participantNotifyDialog.open = false;
+      } catch (error) {
+        this.$q.notify({ type: 'negative', message: this.$extractErrors(error).join(', ') || 'Failed to notify participant' });
+      } finally {
+        this.participantNotifyDialog.saving = false;
       }
     },
   },
@@ -1406,8 +1351,35 @@ export default defineComponent({
   min-width: 10rem;
 }
 
+.event-header-light {
+  background: #f2f4f7;
+}
+
+.event-header-dark {
+  background: #1f2a35;
+  color: #f3f8fc;
+}
+
+.table-chip {
+  border: 1px solid rgba(78, 96, 116, 0.2);
+}
+
+.table-chip-light {
+  background: #e9edf2;
+  color: #1f2933;
+}
+
+.table-chip-dark {
+  background: rgba(34, 47, 61, 0.92);
+  color: #eef6ff;
+}
+
 .day-block + .day-block {
   padding-top: 1rem;
   border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+:global(.body--dark) .day-block + .day-block {
+  border-top: 1px solid rgba(184, 205, 225, 0.22);
 }
 </style>

@@ -224,7 +224,7 @@ def create_app(config_file=None):
                 for event_day in (event.days or []):
                     target_date = event_day.date
                     for session in (event_day.sessions or []):
-                        days_before = session.release_reminder_days or event.notification_days_before
+                        days_before = event.notification_days_before
                         if today + timedelta(days=days_before) != target_date:
                             continue
                         for participant in session.participants:

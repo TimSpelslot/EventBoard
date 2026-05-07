@@ -4,14 +4,11 @@
       <q-toolbar class="row justify-between">
         <div class="q-gutter-x-md">
           <q-btn label="Events" icon="home" to="/" />
-          <q-btn label="Sessions" icon="event_available" to="/sessions" />
           <q-btn label="FAQ" icon="help" to="/faq" />
         </div>
         <q-avatar icon="img:spelslot-logo.svg" size="50px"></q-avatar>
         <div class="q-gutter-x-sm">
           <q-btn icon="notifications" color="primary" @click="setupNotifications" />
-          <q-toggle class="q-sm-md" label="Noob" v-if="me?.privilege_level > 0 || droppedPrivileges" color="secondary" :modelValue="droppedPrivileges" @update:modelValue="togglePrivileges" />
-          <q-spinner size="lg" v-if="adminActionsActive > 0" />
           <q-btn
             v-if="me"
             :icon="me.profile_pic ? 'img:' + me.profile_pic : 'settings'"
@@ -25,46 +22,12 @@
                 <q-item v-if="me" to="/admin/events">
                   <q-item-section>Event operations</q-item-section>
                 </q-item>
+                <q-item v-if="me?.privilege_level >= 2" to="/admin/users">
+                  <q-item-section>Approve users</q-item-section>
+                </q-item>
                 <q-item clickable v-close-popup @click="logout">
                   <q-item-section>Log out</q-item-section>
                 </q-item>
-                <q-separator v-if="me.privilege_level >= 2" />
-                <template v-if="me.privilege_level >= 2">
-                  <q-item to="/admin/users">
-                    <q-item-section>Approve users</q-item-section>
-                  </q-item>
-                  <q-item
-                    clickable
-                    v-close-popup
-                    @click="adminAction('assign')"
-                  >
-                    <q-item-section>Make assignments</q-item-section>
-                  </q-item>
-                  <q-item
-                    clickable
-                    v-close-popup
-                    @click="adminAction('reassign')"
-                  >
-                    <q-item-section>Reassigne players form the waitinglist</q-item-section>
-                  </q-item>
-                  <q-item
-                    clickable
-                    v-close-popup
-                    @click="adminAction('release')"
-                  >
-                    <q-item-section>Release assignments</q-item-section>
-                  </q-item>
-                  <q-item
-                    clickable
-                    v-close-popup
-                    @click="adminAction('reset')"
-                  >
-                    <q-item-section>Reset released assignments</q-item-section>
-                  </q-item>
-                  <q-item clickable v-close-popup @click="signups">
-                    <q-item-section>See current signups</q-item-section>
-                  </q-item>
-                </template>
               </q-list>
             </q-menu>
           </q-btn>
@@ -104,8 +67,6 @@
         @setErrors="(es) => (errors = es)"
         @changedUser="fetchMe"
         @mustLogin="login"
-        @startAdminAction="adminActionsActive++"
-        @finishAdminAction="adminActionsActive--"
       />
       <a href="https://github.com/SpelSlot-IT/AdventureBoard" class="fixed-bottom-right q-mr-sm">
         <q-icon name="img:https://github.com/favicon.ico" size="lg" class="bg-grey-5" />
@@ -126,9 +87,7 @@ export default defineComponent({
     return {
       loading: true,
       errors: [] as string[],
-      adminActionsActive: 0,
       forceRefresh: 1,
-      droppedPrivileges: false,
       me: null as null | {
         id: number;
         display_name: string;
@@ -146,9 +105,6 @@ export default defineComponent({
     },
     async fetchMe() {
       this.me = (await this.$api.get('/api/users/me')).data;
-      if(this.droppedPrivileges) {
-        this.me!.privilege_level = 0;
-      }
     },
     async logout() {
       const currentUrl = window.location.href;
@@ -162,25 +118,6 @@ export default defineComponent({
         currentUrl
       )}`;
     },
-    async signups() {
-      window.location.href = '/#/signups';
-    },
-
-    async adminAction(action: string) {
-      this.adminActionsActive++;
-      try {
-        await this.$api.put('/api/player-assignments', { action: action });
-        this.forceRefresh++;
-        this.$q.notify({
-          message: `${
-            action.charAt(0).toUpperCase() + action.slice(1)
-          } triggered.`,
-          type: 'positive',
-        });
-      } finally {
-        this.adminActionsActive--;
-      }
-    },
     async optionallyFetchUser() {
       try {
         await this.fetchMe();
@@ -190,14 +127,6 @@ export default defineComponent({
         } else {
           throw e;
         }
-      }
-    },
-    togglePrivileges(v: boolean) {
-      this.droppedPrivileges = v;
-      if(v) {
-        this.me!.privilege_level = 0;
-      } else {
-        this.fetchMe();
       }
     },
     async setupNotifications() {

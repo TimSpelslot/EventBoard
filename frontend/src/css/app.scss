@@ -5,3 +5,37 @@
 .body--dark .default-text-color {
 	color: #fff;
 }
+
+.body--dark {
+	.text-grey-7 {
+		color: #c7d2dc !important;
+	}
+
+	.text-grey-8 {
+		color: #d8e3ec !important;
+	}
+
+	.q-card,
+	.q-banner {
+		color: #f4f8fc;
+	}
+
+	.q-btn.bg-negative,
+	.q-btn.text-negative,
+	.q-btn--outline.text-negative {
+		color: #ffb4b4 !important;
+		border-color: rgba(255, 122, 122, 0.75) !important;
+	}
+
+	.q-btn--outline.text-negative {
+		background: rgba(122, 18, 18, 0.22) !important;
+	}
+
+	.q-chip {
+		color: #eef6ff;
+	}
+
+	.q-item__label--caption {
+		color: #c9d7e3;
+	}
+}
