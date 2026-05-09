@@ -562,7 +562,7 @@ class PublicEventsResource(MethodView):
                 .joinedload(EventSession.participants),
             )
             .where(Event.is_active == True)
-            .order_by(Event.created_at.desc())
+            .order_by(Event.sort_order.asc(), Event.created_at.desc())
         ).unique().scalars().all()
 
         today = date.today()
