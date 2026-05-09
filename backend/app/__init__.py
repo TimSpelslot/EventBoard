@@ -151,11 +151,11 @@ def create_app(config_file=None):
 
     # --- Cronjobs ---
 
-    @ap_scheduler.task('cron', id='event_session_reminders', hour=config['TIMING'].get('signup_confirmation_hour', 9))
-    def cron_event_session_reminders():
+    @ap_scheduler.task('cron', id='event_session_reminders_1d', hour=config['TIMING'].get('signup_confirmation_hour', 9))
+    def cron_event_session_reminders_1d():
         with app.app_context():
             today = date.today()
-            # Find all active events and check each session's reminder lead
+            # Find all active events and send reminders exactly 1 day before.
             events = db.session.execute(
                 db.select(Event)
                 .options(
@@ -173,8 +173,7 @@ def create_app(config_file=None):
                 for event_day in (event.days or []):
                     target_date = event_day.date
                     for session in (event_day.sessions or []):
-                        days_before = event.notification_days_before
-                        if today + timedelta(days=days_before) != target_date:
+                        if today + timedelta(days=1) != target_date:
                             continue
                         for participant in session.participants:
                             if participant.status != EventSessionParticipant.STATUS_PLACED:
@@ -188,10 +187,57 @@ def create_app(config_file=None):
                             send_fcm_notification(
                                 participant.user,
                                 "Upcoming session",
-                                f"You are signed up for '{session.title}' on {target_date.strftime('%A %d %B')}",
+                                f"Reminder: you are signed up for '{session.title}' tomorrow ({target_date.strftime('%A %d %B')}).",
                                 category="assignments",
                             )
                             notifications_sent += 1
-            app.logger.info(f"Event session reminders: sent {notifications_sent} notifications")
+            app.logger.info(f"Event session reminders (1 day): sent {notifications_sent} notifications")
+
+    @ap_scheduler.task('cron', id='event_session_reminders_30m', minute='*')
+    def cron_event_session_reminders_30m():
+        with app.app_context():
+            now = datetime.now().replace(second=0, microsecond=0)
+            events = db.session.execute(
+                db.select(Event)
+                .options(
+                    db.joinedload(Event.days)
+                    .joinedload(EventDay.sessions)
+                    .joinedload(EventSession.participants)
+                    .joinedload(EventSessionParticipant.user)
+                )
+                .where(Event.is_active == True)
+            ).unique().scalars().all()
+
+            notifications_sent = 0
+            notified: set[tuple[int, int]] = set()  # (user_id, session_id)
+            for event in events:
+                for event_day in (event.days or []):
+                    for session in (event_day.sessions or []):
+                        if not session.start_time:
+                            continue
+                        session_start = datetime.combine(event_day.date, session.start_time).replace(second=0, microsecond=0)
+                        delta = session_start - now
+                        if delta != timedelta(minutes=30):
+                            continue
+
+                        for participant in session.participants:
+                            if participant.status != EventSessionParticipant.STATUS_PLACED:
+                                continue
+                            if not participant.user_id or not participant.user:
+                                continue
+                            key = (participant.user_id, session.id)
+                            if key in notified:
+                                continue
+                            notified.add(key)
+                            send_fcm_notification(
+                                participant.user,
+                                "Starting soon",
+                                f"'{session.title}' starts in 30 minutes.",
+                                category="assignments",
+                            )
+                            notifications_sent += 1
+
+            if notifications_sent:
+                app.logger.info(f"Event session reminders (30 min): sent {notifications_sent} notifications")
 
     return app

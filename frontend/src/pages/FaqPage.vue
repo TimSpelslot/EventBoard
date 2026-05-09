@@ -53,11 +53,11 @@
           <q-card-section>
             <div class="text-body2">
               <p>
-                You can toggle notifications from your profile page.
+                You can enable push notifications from the header button or the first time you sign up on mobile.
               </p>
               <ul>
-                <li>Assignment release and waiting-list updates</li>
-                <li>Admin reminders (release reminders and new-event notices)</li>
+                <li>Session reminders, waiting-list moves, and placement updates</li>
+                <li>Live signup updates for event staff and admins</li>
               </ul>
             </div>
           </q-card-section>

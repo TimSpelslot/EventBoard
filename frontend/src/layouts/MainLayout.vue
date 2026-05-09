@@ -4,7 +4,6 @@
       <q-toolbar class="row justify-between">
         <div class="q-gutter-x-md">
           <q-btn label="Events" icon="home" to="/" />
-          <q-btn label="FAQ" icon="help" to="/faq" />
         </div>
         <q-avatar icon="img:spelslot-logo.svg" size="50px"></q-avatar>
         <div class="q-gutter-x-sm">
@@ -78,7 +77,7 @@
 <script lang="ts">
 import { defineComponent, computed } from 'vue';
 import { isAxiosError } from 'axios';
-import { getFCMToken } from '../lib/fcm';
+import { enablePushNotifications } from '../lib/fcm';
 
 export default defineComponent({
   name: 'MainLayout',
@@ -138,42 +137,7 @@ export default defineComponent({
         });
         return;
       }
-      try {
-        const permission = await Notification.requestPermission();
-        if (permission !== 'granted') {
-          this.$q.notify({
-            color: 'negative',
-            message: 'Permission denied for notifications.',
-            icon: 'notifications_off'
-          });
-          return;
-        }
-        const token = await getFCMToken();
-        if (token) {
-          const response = await this.$api.post('/api/notifications/save-token', {
-            token: token
-          });
-          this.$q.notify({
-            color: 'positive',
-            message: response.data.message || 'Notifications linked!',
-            icon: 'notifications_active'
-          });
-        } else {
-          this.$q.notify({
-            color: 'warning',
-            message: 'Could not get notification token. Check Firebase Web Push settings.'
-          });
-        }
-      } catch (err) {
-        console.error('Error enabling notifications:', err);
-        const details = err instanceof Error ? err.message : '';
-        this.$q.notify({
-          color: 'negative',
-          message: details
-            ? `Failed to enable notifications: ${details}`
-            : 'Failed to enable notifications.'
-        });
-      }
+      await enablePushNotifications(this.$api, this.$q);
     },
   },
 

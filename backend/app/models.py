@@ -52,8 +52,6 @@ class User(UserMixin, db.Model):
 
     # Notification toggles used by push categories.
     notify_assignments = db.Column(db.Boolean, default=True)
-    notify_event_updates = db.Column(db.Boolean, default=True)
-    notify_signup_confirmation_3d = db.Column(db.Boolean, default=True)
     notify_live_signup_updates = db.Column(db.Boolean, default=True)
 
     def __repr__(self):

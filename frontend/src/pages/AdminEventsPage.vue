@@ -27,6 +27,23 @@
     </div>
 
     <div v-else class="column q-gutter-md">
+      <q-card v-if="canCreateEvents" flat bordered>
+        <q-card-section class="row items-center q-col-gutter-md">
+          <div class="col-12 col-md-4">
+            <div class="text-caption text-grey-7">Starting In Next 60 Minutes</div>
+            <div class="text-h6">{{ healthSummary.startingSoonCount }}</div>
+          </div>
+          <div class="col-12 col-md-4">
+            <div class="text-caption text-grey-7">Players On Waitlist</div>
+            <div class="text-h6">{{ healthSummary.waitlistCount }}</div>
+          </div>
+          <div class="col-12 col-md-4">
+            <div class="text-caption text-grey-7">Open Seats</div>
+            <div class="text-h6">{{ healthSummary.openSeats }}</div>
+          </div>
+        </q-card-section>
+      </q-card>
+
       <q-expansion-item
         v-for="event in manageableEvents"
         :key="event.id"
@@ -39,9 +56,8 @@
         <template #header>
           <q-item-section>
             <q-item-label class="text-subtitle1">{{ event.title }}</q-item-label>
-            <q-item-label
-              caption
-              class="basic-formatted-text"
+            <div
+              class="q-item__label q-item__label--caption basic-formatted-text"
               v-html="formatBasicText(event.description || 'No description')"
             />
           </q-item-section>
@@ -166,7 +182,15 @@
                         </div>
                         <div class="column q-gutter-xs session-actions">
                           <q-btn dense color="primary" icon="group" label="Participants" @click="openParticipants(session, event, day)" />
-                          <q-btn dense outline color="secondary" icon="edit" label="Edit" @click="openSessionEditDialog(event, day, session)" />
+                          <q-btn
+                            v-if="canModifySession(event, session)"
+                            dense
+                            outline
+                            color="secondary"
+                            icon="edit"
+                            label="Edit"
+                            @click="openSessionEditDialog(event, day, session)"
+                          />
                           <q-btn dense outline color="secondary" icon="person_add" label="Add Walk-in" @click="openGuestDialog(session, event, day)" />
                           <q-btn
                             v-if="event.placement_mode === 'delayed' && canManageSessions(event)"
@@ -232,10 +256,21 @@
                                 v-html="formatBasicText(session.short_description)"
                               />
                               <div v-if="session.gamemaster_name" class="text-caption q-mt-xs">Gamemaster: {{ session.gamemaster_name }}</div>
+                              <div v-if="sessionPlayerPreview(session).length" class="text-caption q-mt-xs session-player-preview">
+                                Players: {{ sessionPlayerPreview(session).join(', ') }}
+                              </div>
                             </div>
                             <div class="column q-gutter-xs session-actions">
                               <q-btn dense color="primary" icon="group" label="Participants" @click="openParticipants(session, event, day)" />
-                              <q-btn dense outline color="secondary" icon="edit" label="Edit" @click="openSessionEditDialog(event, day, session)" />
+                              <q-btn
+                                v-if="canModifySession(event, session)"
+                                dense
+                                outline
+                                color="secondary"
+                                icon="edit"
+                                label="Edit"
+                                @click="openSessionEditDialog(event, day, session)"
+                              />
                               <q-btn dense outline color="secondary" icon="person_add" label="Add Walk-in" @click="openGuestDialog(session, event, day)" />
                               <q-btn
                                 v-if="event.placement_mode === 'delayed' && canManageSessions(event)"
@@ -465,10 +500,14 @@
           <div v-if="membershipDialog.form.user_id" class="text-caption text-grey-7">
             Selected: {{ membershipDialog.selectedUserName }}
           </div>
-          <q-select
+          <div class="text-subtitle2">Role</div>
+          <q-option-group
             v-model="membershipDialog.form.role"
-            :options="[{ label: 'Event Admin', value: 'event_admin' }, { label: 'Event Helper', value: 'event_helper' }]"
-            emit-value map-options label="Role"
+            type="radio"
+            :options="[
+              { label: 'Event Admin', value: 'event_admin' },
+              { label: 'Event Helper', value: 'event_helper' },
+            ]"
           />
           <q-toggle v-model="membershipDialog.form.can_send_notifications" label="Can send notifications" />
         </q-card-section>
@@ -595,7 +634,7 @@
         </q-card-section>
         <q-card-actions align="right">
           <q-btn
-            v-if="sessionDialog.editingSessionId"
+            v-if="sessionDialog.editingSessionId && canDeleteEditingSession()"
             flat
             color="negative"
             label="Delete"
@@ -638,10 +677,16 @@ type EventSession = {
   gamemaster_name?: string | null;
   event_table_id: number;
   host_user_id: number | null;
+  created_by_user_id: number | null;
   max_players: number;
   start_time: string;
   duration_minutes: number;
   placement_mode: string;
+};
+
+type SessionMetric = {
+  placedCount: number;
+  waitlistCount: number;
 };
 
 type EventDay = {
@@ -713,6 +758,7 @@ export default defineComponent({
       expandedEventIds: [] as number[],
       expandedTableKeys: {} as Record<string, boolean>,
       sessionPlayersBySessionId: {} as Record<number, string[]>,
+      sessionMetricsBySessionId: {} as Record<number, SessionMetric>,
       sessionPreviewRequestId: 0,
       participantsDialog: {
         open: false,
@@ -840,6 +886,36 @@ export default defineComponent({
 
       return this.events.filter((event) => this.canManageSessions(event));
     },
+    healthSummary() {
+      const now = new Date();
+      let startingSoonCount = 0;
+      let waitlistCount = 0;
+      let openSeats = 0;
+
+      for (const event of this.manageableEvents) {
+        for (const day of (event.days || [])) {
+          for (const session of (day.sessions || [])) {
+            const metrics = this.sessionMetricsBySessionId[session.id] || { placedCount: 0, waitlistCount: 0 };
+            waitlistCount += metrics.waitlistCount;
+            openSeats += Math.max(0, Number(session.max_players || 0) - metrics.placedCount);
+
+            const [hours, minutes] = String(session.start_time || '00:00').slice(0, 5).split(':').map(Number);
+            const start = new Date(`${day.date}T00:00:00`);
+            start.setHours(hours || 0, minutes || 0, 0, 0);
+            const msUntilStart = start.getTime() - now.getTime();
+            if (msUntilStart >= 0 && msUntilStart <= 60 * 60 * 1000) {
+              startingSoonCount += 1;
+            }
+          }
+        }
+      }
+
+      return {
+        startingSoonCount,
+        waitlistCount,
+        openSeats,
+      };
+    },
   },
   async mounted() {
     if (!this.me) {
@@ -914,6 +990,7 @@ export default defineComponent({
       return !!membership && ['event_admin', 'event_helper'].includes(membership.role);
     },
     canAddDays(event: ManagedEvent) {
+      void event;
       return !!this.me && this.me.privilege_level >= 2;
     },
     canAddTables(event: ManagedEvent) {
@@ -928,6 +1005,29 @@ export default defineComponent({
     },
     canCreateSession(event: ManagedEvent) {
       return this.canManageSessions(event);
+    },
+    canModifySession(event: ManagedEvent, session: EventSession) {
+      if (!this.me) {
+        return false;
+      }
+      if (this.me.privilege_level >= 2) {
+        return true;
+      }
+      const membership = this.membershipFor(event);
+      if (membership?.role === 'event_admin') {
+        return true;
+      }
+      return session.created_by_user_id === this.me.id;
+    },
+    canDeleteEditingSession() {
+      if (!this.sessionDialog.event || !this.sessionDialog.day || !this.sessionDialog.editingSessionId) {
+        return false;
+      }
+      const session = (this.sessionDialog.day.sessions || []).find((s) => s.id === this.sessionDialog.editingSessionId);
+      if (!session) {
+        return false;
+      }
+      return this.canModifySession(this.sessionDialog.event, session);
     },
     canSendNotifications(event: ManagedEvent | null) {
       if (!event || !this.me) {
@@ -1079,19 +1179,11 @@ export default defineComponent({
       }
     },
     async removeMembership(event: ManagedEvent, membership: EventMembership) {
-      const mobileDialogOptions = this.$q.screen.lt.md
-        ? {
-          position: 'bottom',
-          fullWidth: true,
-        }
-        : {};
-
       this.$q.dialog({
         title: 'Remove member',
         message: `Remove ${membership.user?.display_name || 'this member'} from the event?`,
         cancel: true,
         persistent: true,
-        ...mobileDialogOptions,
       }).onOk(async () => {
         try {
           await this.$api.delete(`/api/events/${event.id}/memberships/${membership.id}`);
@@ -1253,6 +1345,9 @@ export default defineComponent({
       };
     },
     openSessionEditDialog(event: ManagedEvent, day: EventDay, session: EventSession) {
+      if (!this.canModifySession(event, session)) {
+        return;
+      }
       this.setEventExpanded(event.id, true);
       this.sessionDialog.open = true;
       this.sessionDialog.editingSessionId = session.id;
@@ -1358,18 +1453,22 @@ export default defineComponent({
 
       if (sessionIds.length === 0) {
         this.sessionPlayersBySessionId = {};
+        this.sessionMetricsBySessionId = {};
         return;
       }
 
       const entries = await Promise.all(sessionIds.map(async (sessionId) => {
         try {
           const response = await this.$api.get(`/api/event-sessions/${sessionId}/participants`);
-          const names = (response.data || [])
+          const rows = response.data || [];
+          const names = rows
             .filter((participant: Participant) => participant.status === 'placed')
             .map((participant: Participant) => this.participantName(participant));
-          return [sessionId, names] as const;
+          const placedCount = rows.filter((participant: Participant) => participant.status === 'placed').length;
+          const waitlistCount = rows.filter((participant: Participant) => participant.status === 'waitlist').length;
+          return [sessionId, { names, placedCount, waitlistCount }] as const;
         } catch {
-          return [sessionId, [] as string[]] as const;
+          return [sessionId, { names: [] as string[], placedCount: 0, waitlistCount: 0 }] as const;
         }
       }));
 
@@ -1377,7 +1476,11 @@ export default defineComponent({
         return;
       }
 
-      this.sessionPlayersBySessionId = Object.fromEntries(entries);
+      this.sessionPlayersBySessionId = Object.fromEntries(entries.map(([sessionId, summary]) => [sessionId, summary.names]));
+      this.sessionMetricsBySessionId = Object.fromEntries(entries.map(([sessionId, summary]) => [sessionId, {
+        placedCount: summary.placedCount,
+        waitlistCount: summary.waitlistCount,
+      }]));
     },
     async openParticipants(session: EventSession | null, event: ManagedEvent | null, day: EventDay | null) {
       if (!session || !event || !day) {

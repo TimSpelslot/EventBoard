@@ -6,6 +6,17 @@
         <div class="text-subtitle2 text-grey-7">Choose an event and sign up for sessions.</div>
       </div>
       <div class="row q-gutter-sm">
+        <q-btn-toggle
+          v-model="manualLanguage"
+          toggle-color="primary"
+          unelevated
+          dense
+          :options="[
+            { label: 'EN', value: 'en' },
+            { label: 'NL', value: 'nl' },
+          ]"
+          @update:model-value="saveManualLanguage"
+        />
         <q-btn
           v-if="me?.privilege_level >= 2"
           color="secondary"
@@ -45,6 +56,12 @@
             <q-btn flat color="primary" icon="arrow_back" label="Back to events" to="/" />
           </div>
         </q-card-section>
+        <q-banner class="bg-blue-1 text-blue-10 q-mx-md q-mb-md" rounded>
+          <div class="text-weight-medium">{{ attendanceBannerCopy.title }}</div>
+          <div>
+            {{ attendanceBannerCopy.body }}
+          </div>
+        </q-banner>
         <q-separator />
         <q-card-section class="column q-gutter-md">
           <div v-for="day in sortedDays(selectedEvent.days)" :key="day.id" class="day-block">
@@ -62,10 +79,9 @@
                   <q-item-section>
                     <q-item-label class="text-subtitle2">{{ table.name }}</q-item-label>
                     <q-item-label caption>{{ table.sessions.length }} session{{ table.sessions.length === 1 ? '' : 's' }}</q-item-label>
-                    <q-item-label
+                    <div
                       v-if="table.description"
-                      caption
-                      class="basic-formatted-text"
+                      class="q-item__label q-item__label--caption basic-formatted-text"
                       v-html="formatBasicText(table.description)"
                     />
                   </q-item-section>
@@ -150,12 +166,38 @@
         </q-card>
       </div>
     </div>
+
+    <q-dialog v-model="signupInfoDialog.open">
+      <q-card style="width: min(560px, 100vw)">
+        <q-card-section>
+          <div class="text-h6">{{ signupInfoCopy.title }}</div>
+          <div class="text-body2 q-mt-sm">{{ signupInfoCopy.intro }}</div>
+          <div class="q-mt-md text-body2">
+            <ul class="q-pl-md q-my-none">
+              <li>{{ signupInfoCopy.reminder }}</li>
+              <li>{{ signupInfoCopy.waitlist }}</li>
+              <li>{{ signupInfoCopy.attendance }}</li>
+            </ul>
+          </div>
+        </q-card-section>
+        <q-card-actions align="right" class="q-pa-md q-gutter-sm">
+          <q-btn flat :label="signupInfoCopy.skipLabel" @click="declineSignupInfo" />
+          <q-btn
+            color="primary"
+            icon="notifications_active"
+            :label="signupInfoCopy.enableLabel"
+            @click="acceptSignupInfo"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
 <script lang="ts">
 import { defineComponent, inject } from 'vue';
 import { formatBasicText as renderBasicText } from '../util/common';
+import { enablePushNotifications } from '../lib/fcm';
 
 type PublicSession = {
   id: number;
@@ -211,6 +253,11 @@ export default defineComponent({
       signupLoadingSessionId: null as number | null,
       events: [] as PublicEvent[],
       expandedTables: {} as Record<string, boolean>,
+      manualLanguage: 'en' as 'en' | 'nl',
+      signupInfoDialog: {
+        open: false,
+        pending: null as null | { event: PublicEvent; day: PublicDay; session: PublicSession },
+      },
     };
   },
   computed: {
@@ -221,22 +268,116 @@ export default defineComponent({
       const target = Number(this.eventId);
       return this.events.find((e) => e.id === target) || null;
     },
+    effectiveLanguage(): 'en' | 'nl' {
+      return this.manualLanguage;
+    },
+    signupInfoCopy() {
+      const isDutch = this.effectiveLanguage === 'nl';
+      if (isDutch) {
+        return {
+          title: 'Pushmeldingen voor dit event',
+          intro: 'Wil je pushmeldingen inschakelen voor deze inschrijving?',
+          reminder: 'Je krijgt een herinnering 1 dag en 30 minuten voordat de sessie begint.',
+          waitlist: 'Je krijgt ook een melding als je van de wachtlijst naar een plek in de sessie wordt verplaatst.',
+          attendance: 'We verwachten dat iedereen minstens 5 minuten van tevoren aanwezig is. Ben je niet op tijd, dan kunnen we je uit de sessie halen en de plek geven aan iemand van de wachtlijst die beschikbaar is.',
+          enableLabel: 'Enable Push notifications',
+          skipLabel: 'Not now',
+        };
+      }
+      return {
+        title: 'Push notifications for this event',
+        intro: 'Would you like to enable push notifications for this signup?',
+        reminder: 'You will get a reminder 1 day and 30 minutes before the session starts.',
+        waitlist: 'You will also get a notification if you move from the waiting list into a spot in the session.',
+        attendance: 'Please arrive at least 5 minutes early. If you are not there in time, we may remove you from the session and give the place to someone on the waiting list who is ready.',
+        enableLabel: 'Enable Push notifications',
+        skipLabel: 'Not now',
+      };
+    },
+    attendanceBannerCopy() {
+      const isDutch = this.effectiveLanguage === 'nl';
+      if (isDutch) {
+        return {
+          title: 'Kom op tijd',
+          body: 'We verwachten dat iedereen minstens 5 minuten van tevoren aanwezig is. Ben je niet op tijd, dan kunnen we je uit de sessie halen en de plek geven aan iemand van de wachtlijst die beschikbaar is.',
+        };
+      }
+      return {
+        title: 'Please arrive early',
+        body: "We expect everyone to show up at least 5 minutes in advance. If you're not there in time, we may remove you from the session and give the place to someone on the waiting list who is ready.",
+      };
+    },
   },
   async beforeMount() {
+    this.manualLanguage = this.loadPreferredLanguage();
     await this.fetchEvents();
   },
   methods: {
     openContextDialog(options: any) {
-      const mobileLayout = this.$q.screen.lt.md;
       return this.$q.dialog({
         ...options,
-        ...(mobileLayout
-          ? {
-            position: 'bottom',
-            fullWidth: true,
-          }
-          : {}),
       });
+    },
+    signupPromptStorageKey() {
+      return 'signup-notification-prompt-seen';
+    },
+    hasSeenSignupPrompt() {
+      return localStorage.getItem(this.signupPromptStorageKey()) === '1';
+    },
+    markSignupPromptSeen() {
+      localStorage.setItem(this.signupPromptStorageKey(), '1');
+    },
+    shouldShowSignupPrompt() {
+      return this.$q.screen.lt.md && !this.hasSeenSignupPrompt();
+    },
+    browserLanguage() {
+      if (typeof navigator === 'undefined') {
+        return 'en';
+      }
+      const raw = (navigator.languages && navigator.languages[0]) || navigator.language || 'en';
+      return String(raw).toLowerCase();
+    },
+    languageStorageKey() {
+      return 'public-events-language';
+    },
+    loadPreferredLanguage(): 'en' | 'nl' {
+      const saved = localStorage.getItem(this.languageStorageKey());
+      if (saved === 'en' || saved === 'nl') {
+        return saved;
+      }
+      return this.browserLanguage().startsWith('nl') ? 'nl' : 'en';
+    },
+    saveManualLanguage(value: string | number | null) {
+      const normalized = value === 'nl' ? 'nl' : 'en';
+      this.manualLanguage = normalized;
+      localStorage.setItem(this.languageStorageKey(), normalized);
+    },
+    openSignupInfoDialog(event: PublicEvent, day: PublicDay, session: PublicSession) {
+      this.signupInfoDialog.pending = { event, day, session };
+      this.signupInfoDialog.open = true;
+    },
+    async acceptSignupInfo() {
+      const pending = this.signupInfoDialog.pending;
+      if (!pending) {
+        this.signupInfoDialog.open = false;
+        return;
+      }
+      this.signupInfoDialog.open = false;
+      this.markSignupPromptSeen();
+      this.signupInfoDialog.pending = null;
+      await enablePushNotifications(this.$api, this.$q);
+      await this.requestSignup(pending.event, pending.day, pending.session, true);
+    },
+    async declineSignupInfo() {
+      const pending = this.signupInfoDialog.pending;
+      if (!pending) {
+        this.signupInfoDialog.open = false;
+        return;
+      }
+      this.signupInfoDialog.open = false;
+      this.markSignupPromptSeen();
+      this.signupInfoDialog.pending = null;
+      await this.requestSignup(pending.event, pending.day, pending.session, true);
     },
         groupedTables(sessions: PublicSession[]) {
           const grouped = new Map<number, { id: number; name: string; description: string | null; image_url: string | null; sessions: PublicSession[] }>();
@@ -312,7 +453,7 @@ export default defineComponent({
       const dateLabel = d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
       return day.label ? `${day.label} (${dateLabel})` : dateLabel;
     },
-    formatSessionMeta(session: PublicSession, _day: PublicDay) {
+    formatSessionMeta(session: PublicSession) {
       return `${session.start_time?.slice(0, 5)} • ${session.duration_minutes}m `;
     },
     formatBasicText(text: string | null | undefined) {
@@ -340,7 +481,12 @@ export default defineComponent({
       const bEnd = bStart + b.duration_minutes;
       return aStart < bEnd && bStart < aEnd;
     },
-    async requestSignup(event: PublicEvent, day: PublicDay, session: PublicSession) {
+    async requestSignup(event: PublicEvent, day: PublicDay, session: PublicSession, skipSignupInfoPrompt = false) {
+      if (!skipSignupInfoPrompt && this.shouldShowSignupPrompt()) {
+        this.openSignupInfoDialog(event, day, session);
+        return;
+      }
+
       const placedSessions = (day.sessions || []).filter((s) => s.id !== session.id && s.my_status === 'placed');
       const overlap = placedSessions.find((s) => this.sessionOverlaps(s, session));
 

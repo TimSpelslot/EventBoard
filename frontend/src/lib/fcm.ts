@@ -58,3 +58,55 @@ export async function getFCMToken(): Promise<string | null> {
     serviceWorkerRegistration: registration,
   });
 }
+
+export async function enablePushNotifications(apiClient: any, q: any): Promise<boolean> {
+  if (typeof Notification === 'undefined') {
+    q.notify({
+      color: 'negative',
+      message: 'Your browser does not support push notifications.',
+      icon: 'notifications_off',
+    });
+    return false;
+  }
+
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      q.notify({
+        color: 'negative',
+        message: 'Permission denied for notifications.',
+        icon: 'notifications_off',
+      });
+      return false;
+    }
+
+    const token = await getFCMToken();
+    if (!token) {
+      q.notify({
+        color: 'warning',
+        message: 'Could not get notification token. Check Firebase Web Push settings.',
+      });
+      return false;
+    }
+
+    const response = await apiClient.post('/api/notifications/save-token', {
+      token,
+    });
+    q.notify({
+      color: 'positive',
+      message: response.data?.message || 'Notifications linked!',
+      icon: 'notifications_active',
+    });
+    return true;
+  } catch (err) {
+    console.error('Error enabling notifications:', err);
+    const details = err instanceof Error ? err.message : '';
+    q.notify({
+      color: 'negative',
+      message: details
+        ? `Failed to enable notifications: ${details}`
+        : 'Failed to enable notifications.',
+    });
+    return false;
+  }
+}

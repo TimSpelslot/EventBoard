@@ -588,7 +588,7 @@ def test_helper_can_patch_session_in_their_event(client, app, admin_user_id):
             event_day_id=event_day.id,
             event_table_id=table.id,
             host_user_id=admin_user_id,
-            created_by_user_id=admin_user_id,
+            created_by_user_id=helper.id,
             start_time=time(13, 0),
             duration_minutes=60,
         )
@@ -618,6 +618,48 @@ def test_helper_can_patch_session_in_their_event(client, app, admin_user_id):
     data = response.get_json()
     assert data["title"] == "Updated Title"
     assert data["short_description"] == "Updated Description"
+
+
+def test_helper_cannot_delete_session_created_by_other(client, app, admin_user_id):
+    with app.app_context():
+        helper = User.create(google_id="delete-own-helper", name="Delete Own Helper", privilege_level=0)
+        event = Event(title="Delete Ownership", created_by_user_id=admin_user_id)
+        db.session.add(event)
+        db.session.flush()
+        event_day = EventDay(event_id=event.id, date=date(2026, 11, 19), label="Thursday")
+        db.session.add(event_day)
+        db.session.flush()
+        table = EventTable(event_day_id=event_day.id, name="Table H")
+        db.session.add(table)
+        db.session.flush()
+        session = EventSession(
+            title="Owned by Admin",
+            short_description="Delete guard",
+            event_day_id=event_day.id,
+            event_table_id=table.id,
+            created_by_user_id=admin_user_id,
+            start_time=time(14, 0),
+            duration_minutes=60,
+        )
+        db.session.add(session)
+        db.session.add(
+            EventMembership(
+                event_id=event.id,
+                user_id=helper.id,
+                role=EventMembership.ROLE_EVENT_HELPER,
+            )
+        )
+        db.session.commit()
+        helper_id = helper.id
+        session_id = session.id
+
+    login(client, helper_id)
+    response = client.delete(
+        f"/api/event-sessions/{session_id}",
+        base_url="https://localhost",
+    )
+
+    assert response.status_code == 401
 
 
 def test_helper_cannot_reassign_host_to_other_user(client, app, admin_user_id):

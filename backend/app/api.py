@@ -129,8 +129,6 @@ class UserSchema(ma.SQLAlchemyAutoSchema):
 class UserPatchSchema(ma.Schema):
     display_name = fields.String(required=False)
     notify_assignments = fields.Boolean(required=False)
-    notify_event_updates = fields.Boolean(required=False)
-    notify_signup_confirmation_3d = fields.Boolean(required=False)
     notify_live_signup_updates = fields.Boolean(required=False)
     privilege_level = fields.Integer(required=False, validate=validate.OneOf([0, 1, 2]))
 
@@ -659,9 +657,10 @@ class EventResource(MethodView):
     @login_required
     @blp_events.response(204)
     def delete(self, event_id):
-        event = db.get_or_404(Event, event_id)
-        if not is_admin(current_user) and not is_event_admin(current_user, event):
+        if not is_admin(current_user):
             abort(401, message="Unauthorized")
+
+        event = db.get_or_404(Event, event_id)
 
         db.session.delete(event)
         db.session.commit()
@@ -888,8 +887,13 @@ class EventSessionResource(MethodView):
         session = db.get_or_404(EventSession, event_session_id)
         event_day = db.get_or_404(EventDay, session.event_day_id)
         event = db.get_or_404(Event, event_day.event_id)
+        old_title = session.title
+        old_table_id = session.event_table_id
+        old_start_time = session.start_time
         if not can_manage_event_sessions(current_user, event):
             abort(401, message="Unauthorized")
+        if not is_admin(current_user) and not is_event_admin(current_user, event) and session.created_by_user_id != current_user.id:
+            abort(401, message="Helpers can only edit sessions they created")
 
         target_table_id = args.get("event_table_id", session.event_table_id)
         if "event_table_id" in args:
@@ -919,6 +923,18 @@ class EventSessionResource(MethodView):
         for key, value in args.items():
             setattr(session, key, value)
         db.session.commit()
+        current_app.logger.info(
+            "audit action=session_update actor_user_id=%s event_id=%s session_id=%s old_title=%r new_title=%r old_table_id=%s new_table_id=%s old_start_time=%s new_start_time=%s",
+            current_user.id,
+            event.id,
+            session.id,
+            old_title,
+            session.title,
+            old_table_id,
+            session.event_table_id,
+            old_start_time,
+            session.start_time,
+        )
 
         return db.session.execute(
             db.select(EventSession)
@@ -934,9 +950,20 @@ class EventSessionResource(MethodView):
         event = db.get_or_404(Event, event_day.event_id)
         if not can_manage_event_sessions(current_user, event):
             abort(401, message="Unauthorized")
+        if not is_admin(current_user) and not is_event_admin(current_user, event) and session.created_by_user_id != current_user.id:
+            abort(401, message="Helpers can only delete sessions they created")
 
+        session_id = session.id
+        session_title = session.title
         db.session.delete(session)
         db.session.commit()
+        current_app.logger.info(
+            "audit action=session_delete actor_user_id=%s event_id=%s session_id=%s session_title=%r",
+            current_user.id,
+            event.id,
+            session_id,
+            session_title,
+        )
         return {"message": "Event session deleted"}
 
 
@@ -977,6 +1004,15 @@ class EventSessionManualParticipantsResource(MethodView):
         )
         db.session.add(participant)
         db.session.commit()
+        current_app.logger.info(
+            "audit action=participant_add_guest actor_user_id=%s event_id=%s session_id=%s participant_id=%s guest_player_id=%s status=%s",
+            current_user.id,
+            event.id,
+            event_session.id,
+            participant.id,
+            guest_player.id,
+            participant.status,
+        )
 
         return db.session.execute(
             db.select(EventSessionParticipant)
@@ -1025,6 +1061,16 @@ class EventSessionUserParticipantsResource(MethodView):
         except IntegrityError:
             db.session.rollback()
             abort(409, message="User is already in this session participant list")
+
+        current_app.logger.info(
+            "audit action=participant_add_user actor_user_id=%s event_id=%s session_id=%s participant_id=%s target_user_id=%s status=%s",
+            current_user.id,
+            event.id,
+            event_session.id,
+            participant.id,
+            user.id,
+            participant.status,
+        )
 
         _notify_user_participant_status_change(participant, event_session, event_day, trigger="created")
 
@@ -1130,6 +1176,17 @@ class EventSessionParticipantResource(MethodView):
 
         if promoted:
             _notify_user_participant_status_change(promoted, event_session, event_day, trigger="promoted")
+
+        current_app.logger.info(
+            "audit action=participant_remove actor_user_id=%s event_id=%s session_id=%s participant_id=%s removed_user_id=%s removed_status=%s promoted_participant_id=%s",
+            current_user.id,
+            event.id,
+            event_session.id,
+            participant_id,
+            removed_user_id,
+            removed_status,
+            promoted.id if promoted else None,
+        )
 
         if promoted:
             return {"message": f"Participant removed and waitlist participant {promoted.id} promoted"}
@@ -1324,6 +1381,14 @@ class EventSessionProcessPlacementsResource(MethodView):
             _notify_user_participant_status_change(participant, event_session, event_day, trigger=trigger)
 
         placed_now = sum(1 for _, t in notifications if t == "promoted")
+        current_app.logger.info(
+            "audit action=placements_processed actor_user_id=%s event_id=%s session_id=%s promoted_count=%s waitlist_checked=%s",
+            current_user.id,
+            event.id,
+            event_session.id,
+            placed_now,
+            len(waitlist),
+        )
         return {"message": f"Placements processed: {placed_now} placed"}
 
 
@@ -1636,10 +1701,14 @@ class UsersListResource(MethodView):
 
 @blp_users.route("/<int:user_id>")
 class UserResource(MethodView):
+    @login_required
     @blp_users.response(200, UserSchema()) 
     def get(self, user_id):
         """Return single user by id."""
         try:
+            if current_user.id != user_id and not is_admin(current_user):
+                abort(401, message="Unauthorized")
+
             user = db.session.get(User, user_id)
             if not user:
                 abort(404, message="User not found")
@@ -1823,7 +1892,7 @@ class TestAutomation(MethodView):
     def post(self, target):
         """
         Manually triggers one of the notification scenarios.
-        target can be: 'release', 'event_update', 'signup_confirmation_3d', or 'live_signup'.
+        target can be: 'release' or 'live_signup'.
         """
         if target == "release":
             # Assignment release notification (to caller)
@@ -1834,24 +1903,6 @@ class TestAutomation(MethodView):
                 category="assignments"
             )
             return {"message": "Sent 'Assignment Release' to your device"}
-
-        elif target == "event_update":
-            send_fcm_notification(
-                current_user,
-                "Session update",
-                "TEST: Your upcoming session was updated.",
-                category="event_updates",
-            )
-            return {"message": "Sent 'Event Update' to your device"}
-
-        elif target == "signup_confirmation_3d":
-            send_fcm_notification(
-                current_user,
-                "Upcoming event",
-                "TEST: You are signed up for: test adventure",
-                category="signup_confirmation_3d",
-            )
-            return {"message": "Sent '3-day Signup Confirmation' to your device"}
 
         elif target == "live_signup":
             send_fcm_notification(
