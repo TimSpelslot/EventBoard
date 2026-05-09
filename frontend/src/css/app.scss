@@ -57,22 +57,18 @@
 	padding: 1px 4px;
 }
 
-/* Ensure dialogs center in viewport, not page. */
-.q-dialog {
+/* Force Quasar dialogs to center in viewport */
+.q-dialog__backdrop {
 	position: fixed !important;
-	top: 0;
-	left: 0;
-	right: 0;
-	bottom: 0;
-	height: 100dvh;
-	display: flex;
-	align-items: center;
-	justify-content: center;
 }
 
 .q-dialog__inner {
-	position: relative;
+	position: fixed !important;
+	top: 50% !important;
+	left: 50% !important;
+	transform: translate(-50%, -50%) !important;
 	max-height: 90dvh;
+	overflow-y: auto;
 }
 
 /* Allow scrolling behind dialog overlay to help find off-screen dialogs */
