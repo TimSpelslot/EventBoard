@@ -57,12 +57,25 @@
 	padding: 1px 4px;
 }
 
-/* Keep standard dialogs centered in the visible viewport, not page height. */
+/* Ensure dialogs center in viewport, not page. */
 .q-dialog {
 	position: fixed !important;
-	inset: 0;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	height: 100dvh;
+	display: flex;
+	align-items: center;
+	justify-content: center;
 }
 
-.q-dialog__inner--standard {
-	min-height: 100dvh;
+.q-dialog__inner {
+	position: relative;
+	max-height: 90dvh;
+}
+
+/* Allow scrolling behind dialog overlay to help find off-screen dialogs */
+body.q-body--dialog-open {
+	overflow: auto !important;
 }
