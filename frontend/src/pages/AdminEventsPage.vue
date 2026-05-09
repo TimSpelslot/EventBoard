@@ -361,6 +361,9 @@
               <q-chip color="warning" text-color="black">Waitlist {{ statusCount('waitlist') }}</q-chip>
             </div>
             <div class="col-auto">
+              <q-chip color="orange" text-color="black">Placed Elsewhere {{ statusCount('blocked_conflict') }}</q-chip>
+            </div>
+            <div class="col-auto">
               <q-btn color="primary" icon="arrow_upward" label="Promote Next" :loading="participantsDialog.promoting" @click="promoteNext" />
             </div>
           </div>
@@ -378,6 +381,15 @@
               <q-td :props="props">
                 <div class="text-body2">{{ participantName(props.row) }}</div>
                 <div class="text-caption text-grey-7">{{ props.row.user_id ? 'Signed-in user' : 'Guest' }}</div>
+                <q-chip
+                  v-if="props.row.status === 'blocked_conflict'"
+                  dense
+                  color="orange"
+                  text-color="black"
+                  class="q-mt-xs"
+                >
+                  Already placed in overlapping session
+                </q-chip>
               </q-td>
             </template>
 
@@ -740,6 +752,7 @@ export default defineComponent({
       participantStatusOptions: [
         { label: 'Placed', value: 'placed' },
         { label: 'Waitlist', value: 'waitlist' },
+        { label: 'Placed elsewhere (overlap)', value: 'blocked_conflict' },
         { label: 'Cancelled', value: 'cancelled' },
       ],
       participantColumns: [
