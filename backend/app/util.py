@@ -72,6 +72,18 @@ def ensure_event_type_schema_compat():
                     )
                 )
 
+        if "events" in table_names:
+            event_cols = {c["name"] for c in inspector.get_columns("events")}
+            if "sort_order" not in event_cols:
+                current_app.logger.warning(
+                    "Schema compat: missing events.sort_order, applying ALTER TABLE."
+                )
+                conn.execute(
+                    text(
+                        "ALTER TABLE events ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
+
         if "users" in table_names:
             user_cols = {c["name"] for c in inspector.get_columns("users")}
             if "notify_live_signup_updates" not in user_cols:

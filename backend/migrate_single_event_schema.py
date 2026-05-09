@@ -297,6 +297,16 @@ def migrate_single_event_schema() -> None:
                 )
             )
 
+    if _table_exists(inspector, "events"):
+        event_cols = {c["name"] for c in inspector.get_columns("events")}
+        if "sort_order" not in event_cols:
+            default_clause = "0"
+            conn.execute(
+                text(
+                    f"ALTER TABLE events ADD COLUMN sort_order INTEGER NOT NULL DEFAULT {default_clause}"
+                )
+            )
+
     if _table_exists(inspector, "users"):
         user_cols = {c["name"] for c in inspector.get_columns("users")}
         if "notify_event_updates" not in user_cols:
