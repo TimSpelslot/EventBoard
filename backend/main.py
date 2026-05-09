@@ -1,6 +1,6 @@
 from app import create_app
 import os, webbrowser
-from flask import render_template
+from flask import redirect
 
 print("Starting application...")
 print(f"Current directory: {os.getcwd()}")
@@ -24,7 +24,7 @@ if __name__ == "__main__":
     # --- Apply old Basic provider routs ---
     @app.route('/')
     def home():
-        return render_template('app.html')
+        return redirect('/#/')
 
     #webbrowser.open("https://localhost:5000")
     print("Backend app running on https://localhost:5000")

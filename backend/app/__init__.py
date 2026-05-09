@@ -149,58 +149,7 @@ def create_app(config_file=None):
         mail.init_app(app)
 
 
-    # --- Cronjobs ---   
-    a_d, a_h = config['TIMING']['assignment_day'].split("@")
-
-    @ap_scheduler.task('cron', id='make_assignments', day_of_week=a_d, hour=a_h)
-    def cron_make_assignments():
-        with app.app_context():
-            app.logger.info("--- Triggering scheduled 'make assignment' job ---")
-            assign_players_to_adventures()
-
-    @ap_scheduler.task('cron', id='three_day_signup_confirmation', hour=config['TIMING'].get('signup_confirmation_hour', 9))
-    def cron_three_day_signup_confirmation():
-        with app.app_context():
-            today = date.today()
-            target_date = today + timedelta(days=3)
-
-            assignments = db.session.execute(
-                db.select(Assignment)
-                .join(Adventure, Assignment.adventure_id == Adventure.id)
-                .join(EventType, Adventure.event_type_id == EventType.id)
-                .options(
-                    db.contains_eager(Assignment.adventure),
-                )
-                .where(
-                    Adventure.date == target_date,
-                    Adventure.is_waitinglist == 0,
-                    EventType.signup_mode == "immediate_automatic",
-                )
-            ).scalars().all()
-
-            if not assignments:
-                return
-
-            grouped: dict[int, list[str]] = {}
-            users: dict[int, User] = {}
-            for assignment in assignments:
-                user = assignment.user
-                adventure = assignment.adventure
-                if not user or not adventure:
-                    continue
-                users[user.id] = user
-                grouped.setdefault(user.id, []).append(adventure.title)
-
-            for user_id, titles in grouped.items():
-                user = users.get(user_id)
-                if not user:
-                    continue
-                send_fcm_notification(
-                    user,
-                    "Upcoming event",
-                    f"You are signed up for: {', '.join(sorted(set(titles)))}",
-                    category="signup_confirmation_3d",
-                )
+    # --- Cronjobs ---
 
     @ap_scheduler.task('cron', id='event_session_reminders', hour=config['TIMING'].get('signup_confirmation_hour', 9))
     def cron_event_session_reminders():

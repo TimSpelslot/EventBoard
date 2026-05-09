@@ -39,3 +39,20 @@
 		color: #c9d7e3;
 	}
 }
+
+.basic-formatted-text {
+	white-space: normal;
+}
+
+.basic-formatted-text a {
+	color: inherit;
+	text-decoration: underline;
+}
+
+.basic-formatted-text code {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace;
+	font-size: 0.9em;
+	background: rgba(127, 127, 127, 0.16);
+	border-radius: 4px;
+	padding: 1px 4px;
+}

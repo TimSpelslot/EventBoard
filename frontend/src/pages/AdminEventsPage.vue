@@ -30,7 +30,8 @@
       <q-expansion-item
         v-for="event in manageableEvents"
         :key="event.id"
-        group="events"
+        :model-value="isEventExpanded(event.id)"
+        @update:model-value="(v) => setEventExpanded(event.id, !!v)"
         expand-separator
         :header-class="$q.dark.isActive ? 'event-header-dark' : 'event-header-light'"
         class="rounded-borders overflow-hidden"
@@ -38,9 +39,11 @@
         <template #header>
           <q-item-section>
             <q-item-label class="text-subtitle1">{{ event.title }}</q-item-label>
-            <q-item-label caption>
-              {{ event.description || 'No description' }}
-            </q-item-label>
+            <q-item-label
+              caption
+              class="basic-formatted-text"
+              v-html="formatBasicText(event.description || 'No description')"
+            />
           </q-item-section>
           <q-item-section side v-if="canAddDays(event)">
             <q-btn dense flat color="primary" icon="event_available" label="Add Day" @click.stop="openDayDialog(event)" />
@@ -105,8 +108,13 @@
                   <q-avatar v-if="table.image_url" rounded>
                     <img :src="table.image_url" alt="Table" />
                   </q-avatar>
-                  <span>{{ table.name }}</span>
-                  <span v-if="table.description" class="q-ml-xs text-caption">- {{ table.description }}</span>
+                  <span class="table-chip-name" :title="table.name">{{ table.name }}</span>
+                  <span
+                    v-if="table.description"
+                    class="q-ml-xs text-caption basic-formatted-text table-chip-description"
+                    :title="table.description"
+                    v-html="`- ${formatBasicText(table.description)}`"
+                  />
                   <q-btn
                     v-if="canAddTables(event)"
                     dense
@@ -119,13 +127,26 @@
                 </q-chip>
               </div>
 
-              <div class="row q-col-gutter-md">
+              <div class="row items-center justify-between q-mb-sm">
+                <div class="text-caption text-grey-7">Session view</div>
+                <q-btn-toggle
+                  v-model="sessionViewMode"
+                  unelevated
+                  toggle-color="primary"
+                  :options="[
+                    { label: 'Timed', value: 'timed' },
+                    { label: 'Per table', value: 'table' },
+                  ]"
+                />
+              </div>
+
+              <div v-if="sessionViewMode === 'timed'" class="row q-col-gutter-md">
                 <div
                   v-for="session in sortedSessions(day.sessions)"
                   :key="session.id"
                   class="col-12 col-lg-6"
                 >
-                  <q-card class="session-card" flat bordered>
+                  <q-card :class="['session-card', timedSessionClass(day, session)]" flat bordered>
                     <q-card-section>
                       <div class="row items-start justify-between q-col-gutter-sm">
                         <div class="col">
@@ -133,8 +154,15 @@
                           <div class="text-caption text-grey-7 q-mt-xs">
                             {{ formatSessionMeta(session, day) }}
                           </div>
-                          <div v-if="session.short_description" class="text-body2 q-mt-sm">{{ session.short_description }}</div>
+                          <div
+                            v-if="session.short_description"
+                            class="text-body2 q-mt-sm basic-formatted-text"
+                            v-html="formatBasicText(session.short_description)"
+                          />
                           <div v-if="session.gamemaster_name" class="text-caption q-mt-xs">Gamemaster: {{ session.gamemaster_name }}</div>
+                          <div v-if="sessionPlayerPreview(session).length" class="text-caption q-mt-xs session-player-preview">
+                            Players: {{ sessionPlayerPreview(session).join(', ') }}
+                          </div>
                         </div>
                         <div class="column q-gutter-xs session-actions">
                           <q-btn dense color="primary" icon="group" label="Participants" @click="openParticipants(session, event, day)" />
@@ -163,6 +191,77 @@
                     </q-card-section>
                   </q-card>
                 </div>
+              </div>
+
+              <div v-else class="column q-gutter-sm">
+                <q-expansion-item
+                  v-for="table in tableSessionGroups(day)"
+                  :key="`${day.id}-${table.id}`"
+                  :model-value="isTableExpanded(event.id, day.id, table.id)"
+                  @update:model-value="(v) => setTableExpanded(event.id, day.id, table.id, !!v)"
+                  expand-separator
+                  dense
+                  :header-class="$q.dark.isActive ? 'table-group-header-dark' : 'table-group-header-light'"
+                >
+                  <template #header>
+                    <q-item-section>
+                      <q-item-label>{{ table.name }}</q-item-label>
+                      <q-item-label caption>{{ table.sessions.length }} session{{ table.sessions.length === 1 ? '' : 's' }}</q-item-label>
+                    </q-item-section>
+                  </template>
+
+                  <q-card flat>
+                    <q-card-section class="column q-gutter-sm">
+                      <q-card
+                        v-for="session in table.sessions"
+                        :key="session.id"
+                        class="session-card"
+                        flat
+                        bordered
+                      >
+                        <q-card-section>
+                          <div class="row items-start justify-between q-col-gutter-sm">
+                            <div class="col">
+                              <div class="text-subtitle1">{{ session.title }}</div>
+                              <div class="text-caption text-grey-7 q-mt-xs">
+                                {{ formatSessionMeta(session, day) }}
+                              </div>
+                              <div
+                                v-if="session.short_description"
+                                class="text-body2 q-mt-sm basic-formatted-text"
+                                v-html="formatBasicText(session.short_description)"
+                              />
+                              <div v-if="session.gamemaster_name" class="text-caption q-mt-xs">Gamemaster: {{ session.gamemaster_name }}</div>
+                            </div>
+                            <div class="column q-gutter-xs session-actions">
+                              <q-btn dense color="primary" icon="group" label="Participants" @click="openParticipants(session, event, day)" />
+                              <q-btn dense outline color="secondary" icon="edit" label="Edit" @click="openSessionEditDialog(event, day, session)" />
+                              <q-btn dense outline color="secondary" icon="person_add" label="Add Walk-in" @click="openGuestDialog(session, event, day)" />
+                              <q-btn
+                                v-if="event.placement_mode === 'delayed' && canManageSessions(event)"
+                                dense
+                                outline
+                                color="positive"
+                                icon="playlist_add_check"
+                                label="Process Placements"
+                                @click="processPlacements(session)"
+                              />
+                              <q-btn
+                                dense
+                                outline
+                                color="accent"
+                                icon="campaign"
+                                label="Notify"
+                                :disable="!canSendNotifications(event)"
+                                @click="openNotifyDialog(session, event)"
+                              />
+                            </div>
+                          </div>
+                        </q-card-section>
+                      </q-card>
+                    </q-card-section>
+                  </q-card>
+                </q-expansion-item>
               </div>
             </div>
           </q-card-section>
@@ -515,6 +614,7 @@
 <script lang="ts">
 import { defineComponent, inject } from 'vue';
 import DatePicker from 'src/components/DatePicker.vue';
+import { formatBasicText as renderBasicText } from '../util/common';
 
 type EventMembership = {
   id: number;
@@ -609,6 +709,11 @@ export default defineComponent({
     return {
       loading: false,
       events: [] as ManagedEvent[],
+      sessionViewMode: 'timed' as 'timed' | 'table',
+      expandedEventIds: [] as number[],
+      expandedTableKeys: {} as Record<string, boolean>,
+      sessionPlayersBySessionId: {} as Record<number, string[]>,
+      sessionPreviewRequestId: 0,
       participantsDialog: {
         open: false,
         loading: false,
@@ -744,11 +849,36 @@ export default defineComponent({
     await this.fetchEvents();
   },
   methods: {
+    formatBasicText(text: string | null | undefined) {
+      return renderBasicText(text);
+    },
+    isEventExpanded(eventId: number) {
+      return this.expandedEventIds.includes(eventId);
+    },
+    setEventExpanded(eventId: number, value: boolean) {
+      this.expandedEventIds = value
+        ? [...new Set([...this.expandedEventIds, eventId])]
+        : this.expandedEventIds.filter((id) => id !== eventId);
+    },
+    tableExpansionKey(eventId: number, dayId: number, tableId: number) {
+      return `${eventId}-${dayId}-${tableId}`;
+    },
+    isTableExpanded(eventId: number, dayId: number, tableId: number) {
+      return !!this.expandedTableKeys[this.tableExpansionKey(eventId, dayId, tableId)];
+    },
+    setTableExpanded(eventId: number, dayId: number, tableId: number, value: boolean) {
+      const key = this.tableExpansionKey(eventId, dayId, tableId);
+      this.expandedTableKeys = {
+        ...this.expandedTableKeys,
+        [key]: value,
+      };
+    },
     async fetchEvents() {
       this.loading = true;
       try {
         const response = await this.$api.get('/api/events');
         this.events = response.data || [];
+        this.refreshSessionPlayerPreviews();
       } catch (error) {
         this.$q.notify({ type: 'negative', message: this.$extractErrors(error).join(', ') || 'Failed to fetch events' });
       } finally {
@@ -763,6 +893,12 @@ export default defineComponent({
     },
     sortedTables(tables: EventTable[]) {
       return [...(tables || [])].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    },
+    tableSessionGroups(day: EventDay) {
+      return this.sortedTables(day.tables || []).map((table) => ({
+        ...table,
+        sessions: this.sortedSessions((day.sessions || []).filter((session) => session.event_table_id === table.id)),
+      }));
     },
     membershipFor(event: ManagedEvent) {
       return (event.memberships || []).find((membership) => membership.user_id === this.me?.id) || null;
@@ -943,11 +1079,19 @@ export default defineComponent({
       }
     },
     async removeMembership(event: ManagedEvent, membership: EventMembership) {
+      const mobileDialogOptions = this.$q.screen.lt.md
+        ? {
+          position: 'bottom',
+          fullWidth: true,
+        }
+        : {};
+
       this.$q.dialog({
         title: 'Remove member',
         message: `Remove ${membership.user?.display_name || 'this member'} from the event?`,
         cancel: true,
         persistent: true,
+        ...mobileDialogOptions,
       }).onOk(async () => {
         try {
           await this.$api.delete(`/api/events/${event.id}/memberships/${membership.id}`);
@@ -959,6 +1103,7 @@ export default defineComponent({
       });
     },
     openDayDialog(event: ManagedEvent) {
+      this.setEventExpanded(event.id, true);
       this.dayDialog.open = true;
       this.dayDialog.editingDayId = null;
       this.dayDialog.event = event;
@@ -969,6 +1114,7 @@ export default defineComponent({
       };
     },
     openDayEditDialog(event: ManagedEvent, day: EventDay) {
+      this.setEventExpanded(event.id, true);
       this.dayDialog.open = true;
       this.dayDialog.editingDayId = day.id;
       this.dayDialog.event = event;
@@ -1021,6 +1167,7 @@ export default defineComponent({
       }
     },
     openTableDialog(event: ManagedEvent, day: EventDay) {
+      this.setEventExpanded(event.id, true);
       this.tableDialog.open = true;
       this.tableDialog.editingTableId = null;
       this.tableDialog.event = event;
@@ -1033,6 +1180,7 @@ export default defineComponent({
       };
     },
     openTableEditDialog(event: ManagedEvent, day: EventDay, table: EventTable) {
+      this.setEventExpanded(event.id, true);
       this.tableDialog.open = true;
       this.tableDialog.editingTableId = table.id;
       this.tableDialog.event = event;
@@ -1088,6 +1236,7 @@ export default defineComponent({
       }
     },
     openSessionDialog(event: ManagedEvent, day: EventDay) {
+      this.setEventExpanded(event.id, true);
       this.sessionDialog.open = true;
       this.sessionDialog.editingSessionId = null;
       this.sessionDialog.event = event;
@@ -1104,6 +1253,7 @@ export default defineComponent({
       };
     },
     openSessionEditDialog(event: ManagedEvent, day: EventDay, session: EventSession) {
+      this.setEventExpanded(event.id, true);
       this.sessionDialog.open = true;
       this.sessionDialog.editingSessionId = session.id;
       this.sessionDialog.event = event;
@@ -1176,8 +1326,58 @@ export default defineComponent({
     formatSessionMeta(session: EventSession, day: EventDay) {
       return `${this.tableName(day, session.event_table_id)} · ${session.start_time.slice(0, 5)} · ${session.duration_minutes} min · cap ${session.max_players}`;
     },
+    timedSessionClass(day: EventDay, session: EventSession) {
+      const status = this.sessionTimingStatus(day, session);
+      if (status === 'ended') return 'session-timed-ended';
+      if (status === 'underway') return 'session-timed-underway';
+      if (status === 'starting_soon') return 'session-timed-starting';
+      return '';
+    },
+    sessionTimingStatus(day: EventDay, session: EventSession) {
+      const [hours, minutes] = String(session.start_time || '00:00').slice(0, 5).split(':').map(Number);
+      const start = new Date(`${day.date}T00:00:00`);
+      start.setHours(hours || 0, minutes || 0, 0, 0);
+      const end = new Date(start.getTime() + session.duration_minutes * 60000);
+      const now = new Date();
+      if (now >= end) return 'ended';
+      if (now >= start) return 'underway';
+      if (start.getTime() - now.getTime() <= 30 * 60000) return 'starting_soon';
+      return 'upcoming';
+    },
     participantName(participant: Participant) {
       return participant.user?.display_name || participant.guest_player?.display_name || 'Unknown participant';
+    },
+    sessionPlayerPreview(session: EventSession) {
+      return this.sessionPlayersBySessionId[session.id] || [];
+    },
+    async refreshSessionPlayerPreviews() {
+      const requestId = ++this.sessionPreviewRequestId;
+      const sessionIds = this.events.flatMap((event) =>
+        (event.days || []).flatMap((day) => (day.sessions || []).map((session) => session.id)),
+      );
+
+      if (sessionIds.length === 0) {
+        this.sessionPlayersBySessionId = {};
+        return;
+      }
+
+      const entries = await Promise.all(sessionIds.map(async (sessionId) => {
+        try {
+          const response = await this.$api.get(`/api/event-sessions/${sessionId}/participants`);
+          const names = (response.data || [])
+            .filter((participant: Participant) => participant.status === 'placed')
+            .map((participant: Participant) => this.participantName(participant));
+          return [sessionId, names] as const;
+        } catch {
+          return [sessionId, [] as string[]] as const;
+        }
+      }));
+
+      if (requestId !== this.sessionPreviewRequestId) {
+        return;
+      }
+
+      this.sessionPlayersBySessionId = Object.fromEntries(entries);
     },
     async openParticipants(session: EventSession | null, event: ManagedEvent | null, day: EventDay | null) {
       if (!session || !event || !day) {
@@ -1347,6 +1547,26 @@ export default defineComponent({
   height: 100%;
 }
 
+.session-timed-ended {
+  border-left: 5px solid #c62828;
+  background: rgba(198, 40, 40, 0.06);
+}
+
+.session-timed-underway {
+  border-left: 5px solid #ef6c00;
+  background: rgba(239, 108, 0, 0.07);
+}
+
+.session-timed-starting {
+  border-left: 5px solid #2e7d32;
+  background: rgba(46, 125, 50, 0.08);
+}
+
+.session-player-preview {
+  line-height: 1.4;
+  white-space: normal;
+}
+
 .session-actions {
   min-width: 10rem;
 }
@@ -1361,7 +1581,36 @@ export default defineComponent({
 }
 
 .table-chip {
+  max-width: 100%;
   border: 1px solid rgba(78, 96, 116, 0.2);
+}
+
+.table-chip :deep(.q-chip__content) {
+  max-width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.table-chip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-chip-description {
+  max-width: min(44vw, 28rem);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1023px) {
+  .table-chip-description {
+    max-width: 14rem;
+  }
 }
 
 .table-chip-light {
@@ -1372,6 +1621,14 @@ export default defineComponent({
 .table-chip-dark {
   background: rgba(34, 47, 61, 0.92);
   color: #eef6ff;
+}
+
+.table-group-header-light {
+  background: rgba(228, 236, 245, 0.55);
+}
+
+.table-group-header-dark {
+  background: rgba(31, 42, 53, 0.72);
 }
 
 .day-block + .day-block {

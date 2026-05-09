@@ -712,7 +712,10 @@ def has_no_empty_params(rule):
     return len(defaults) >= len(arguments)
 
 def get_google():
-    return current_app.extensions["google_oauth"].client, current_app.extensions["google_oauth"].provider_cfg
+    oauth = current_app.extensions.get("google_oauth")
+    if not oauth or not oauth.client or not oauth.provider_cfg:
+        raise RuntimeError("Google OAuth is not available")
+    return oauth.client, oauth.provider_cfg
 
 def send_fcm_notification(user, title, body, category=None, link="OPEN_APP"):
     """Sends a push notification to all devices registered by a specific user."""

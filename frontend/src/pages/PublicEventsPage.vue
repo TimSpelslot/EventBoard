@@ -37,7 +37,10 @@
           <div class="row items-center justify-between q-gutter-sm">
             <div>
               <div class="text-h6">{{ selectedEvent.title }}</div>
-              <div class="text-body2 text-grey-8">{{ selectedEvent.description || 'No description' }}</div>
+                <div
+                  class="text-body2 text-grey-8 basic-formatted-text"
+                  v-html="formatBasicText(selectedEvent.description || 'No description')"
+                />
             </div>
             <q-btn flat color="primary" icon="arrow_back" label="Back to events" to="/" />
           </div>
@@ -59,7 +62,12 @@
                   <q-item-section>
                     <q-item-label class="text-subtitle2">{{ table.name }}</q-item-label>
                     <q-item-label caption>{{ table.sessions.length }} session{{ table.sessions.length === 1 ? '' : 's' }}</q-item-label>
-                    <q-item-label v-if="table.description" caption>{{ table.description }}</q-item-label>
+                    <q-item-label
+                      v-if="table.description"
+                      caption
+                      class="basic-formatted-text"
+                      v-html="formatBasicText(table.description)"
+                    />
                   </q-item-section>
                   <q-item-section side v-if="table.image_url">
                     <q-avatar rounded size="42px" class="table-thumb">
@@ -78,7 +86,11 @@
                             <div class="text-caption text-body2 q-mt-sm">
                               {{ formatSessionMeta(session, day) }}
                             </div>
-                            <div v-if="session.short_description" class="text-body2 q-mt-sm">{{ session.short_description }}</div>
+                            <div
+                              v-if="session.short_description"
+                              class="text-body2 q-mt-sm basic-formatted-text"
+                              v-html="formatBasicText(session.short_description)"
+                            />
                             <div v-if="session.gamemaster_name" class="text-caption q-mt-xs">Gamemaster: {{ session.gamemaster_name }}</div>
                             <div class="q-mt-sm text-caption">
                               Seats: {{ session.placed_count }}/{{ session.max_players }} placed
@@ -129,7 +141,10 @@
           <q-img v-if="event.image_url" :src="event.image_url" style="height: 180px" />
           <q-card-section>
             <div class="text-h6">{{ event.title }}</div>
-            <div class="text-body2 text-grey-8">{{ event.description || 'No description' }}</div>
+            <div
+              class="text-body2 text-grey-8 basic-formatted-text"
+              v-html="formatBasicText(event.description || 'No description')"
+            />
             <div class="text-caption text-grey-7 q-mt-sm">{{ event.days.length }} day{{ event.days.length === 1 ? '' : 's' }}</div>
           </q-card-section>
         </q-card>
@@ -140,6 +155,7 @@
 
 <script lang="ts">
 import { defineComponent, inject } from 'vue';
+import { formatBasicText as renderBasicText } from '../util/common';
 
 type PublicSession = {
   id: number;
@@ -171,6 +187,7 @@ type PublicEvent = {
   title: string;
   description?: string | null;
   image_url?: string | null;
+  placement_mode?: string;
   days: PublicDay[];
 };
 
@@ -209,6 +226,18 @@ export default defineComponent({
     await this.fetchEvents();
   },
   methods: {
+    openContextDialog(options: any) {
+      const mobileLayout = this.$q.screen.lt.md;
+      return this.$q.dialog({
+        ...options,
+        ...(mobileLayout
+          ? {
+            position: 'bottom',
+            fullWidth: true,
+          }
+          : {}),
+      });
+    },
         groupedTables(sessions: PublicSession[]) {
           const grouped = new Map<number, { id: number; name: string; description: string | null; image_url: string | null; sessions: PublicSession[] }>();
           for (const session of sessions || []) {
@@ -286,6 +315,9 @@ export default defineComponent({
     formatSessionMeta(session: PublicSession, _day: PublicDay) {
       return `${session.start_time?.slice(0, 5)} • ${session.duration_minutes}m `;
     },
+    formatBasicText(text: string | null | undefined) {
+      return renderBasicText(text);
+    },
     statusLabel(status: string) {
       if (status === 'placed') return 'Placed';
       if (status === 'waitlist') return 'Waitlist';
@@ -313,7 +345,7 @@ export default defineComponent({
       const overlap = placedSessions.find((s) => this.sessionOverlaps(s, session));
 
       if (overlap) {
-        this.$q.dialog({
+        this.openContextDialog({
           title: 'Already placed at this time',
           message: `You are already placed in "${overlap.title}" at this time. Do you want to switch to "${session.title}"?`,
           cancel: { label: 'Keep current session' },
@@ -323,7 +355,7 @@ export default defineComponent({
           const likelyWaitlist = event.placement_mode === 'delayed' || session.placed_count >= session.max_players;
           if (likelyWaitlist) {
             const proceed = await new Promise<boolean>((resolve) => {
-              this.$q.dialog({
+              this.openContextDialog({
                 title: 'Switch warning',
                 message: 'Switching may move you from a placed spot to the waiting list. Continue?',
                 cancel: true,
@@ -341,7 +373,7 @@ export default defineComponent({
       }
 
       if (placedSessions.length > 0) {
-        this.$q.dialog({
+        this.openContextDialog({
           title: 'Second signup will be waitlist',
           message: 'You already have a placed session this day. A second signup will be added to the waiting list. Do you want to join waitlist or switch sessions?',
           options: {
@@ -361,7 +393,7 @@ export default defineComponent({
             const likelyWaitlist = event.placement_mode === 'delayed' || session.placed_count >= session.max_players;
             if (likelyWaitlist) {
               const proceed = await new Promise<boolean>((resolve) => {
-                this.$q.dialog({
+                this.openContextDialog({
                   title: 'Switch warning',
                   message: 'Switching may move you from a placed spot to the waiting list. Continue?',
                   cancel: true,

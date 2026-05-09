@@ -24,7 +24,14 @@ class GoogleOAuth:
 
     def init_app(self, app):
         self.client = WebApplicationClient(app.config["GOOGLE"]["client_id"])
-        self.provider_cfg = requests.get(app.config["GOOGLE"]["discovery_url"]).json()
+        try:
+            resp = requests.get(app.config["GOOGLE"]["discovery_url"], timeout=5)
+            resp.raise_for_status()
+            self.provider_cfg = resp.json()
+        except Exception as exc:
+            # Do not block API startup if Google is temporarily unreachable.
+            self.provider_cfg = None
+            app.logger.warning("Google OAuth discovery unavailable during startup: %s", exc)
         app.extensions = getattr(app, "extensions", {})
         app.extensions["google_oauth"] = self
 google_oauth = GoogleOAuth()
