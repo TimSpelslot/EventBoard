@@ -181,6 +181,7 @@ class Event(db.Model):
     notification_days_before = db.Column(db.Integer, nullable=False, default=2)
     allow_event_admin_notifications = db.Column(db.Boolean, nullable=False, default=False)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
     created_by_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
 

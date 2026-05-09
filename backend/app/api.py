@@ -204,6 +204,7 @@ class EventUpdateSchema(ma.Schema):
     notification_days_before = fields.Integer(required=False)
     allow_event_admin_notifications = fields.Boolean(required=False)
     is_active = fields.Boolean(required=False)
+    sort_order = fields.Integer(required=False)
 
 
 class EventMembershipCreateSchema(ma.Schema):

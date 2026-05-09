@@ -551,6 +551,7 @@
             map-options
             label="Placement mode"
           />
+          <q-input v-model.number="eventDialog.form.sort_order" type="number" label="Sort order" />
           <q-toggle v-model="eventDialog.form.release_assignments" label="Assignments released immediately" />
           <q-toggle v-model="eventDialog.form.allow_event_admin_notifications" label="Allow event-admin notifications" />
         </q-card-section>
@@ -718,6 +719,7 @@ type ManagedEvent = {
   placement_mode: string;
   release_assignments: boolean;
   allow_event_admin_notifications: boolean;
+  sort_order?: number;
   memberships: EventMembership[];
   days: EventDay[];
 };
@@ -827,6 +829,7 @@ export default defineComponent({
           placement_mode: 'delayed',
           release_assignments: false,
           allow_event_admin_notifications: false,
+          sort_order: 0,
         },
       },
       dayDialog: {
@@ -897,7 +900,13 @@ export default defineComponent({
         return [];
       }
 
-      return this.events.filter((event) => this.canManageSessions(event));
+      return this.events
+        .filter((event) => this.canManageSessions(event))
+        .sort((a, b) => {
+          const aOrder = (a as ManagedEvent & { sort_order?: number }).sort_order || 0;
+          const bOrder = (b as ManagedEvent & { sort_order?: number }).sort_order || 0;
+          return aOrder - bOrder;
+        });
     },
     healthSummary() {
       const now = new Date();
@@ -1063,6 +1072,7 @@ export default defineComponent({
         placement_mode: 'delayed',
         release_assignments: false,
         allow_event_admin_notifications: false,
+        sort_order: this.manageableEvents.length,
       };
     },
     openEventEditDialog(event: ManagedEvent) {
@@ -1076,6 +1086,7 @@ export default defineComponent({
         placement_mode: event.placement_mode ?? 'delayed',
         release_assignments: event.release_assignments ?? false,
         allow_event_admin_notifications: event.allow_event_admin_notifications ?? false,
+        sort_order: (event as ManagedEvent & { sort_order?: number }).sort_order || 0,
       };
     },
     async submitEvent() {
@@ -1092,6 +1103,7 @@ export default defineComponent({
           placement_mode: this.eventDialog.form.placement_mode,
           release_assignments: this.eventDialog.form.release_assignments,
           allow_event_admin_notifications: this.eventDialog.form.allow_event_admin_notifications,
+          sort_order: this.eventDialog.form.sort_order,
         };
         if (this.eventDialog.editingEventId) {
           await this.$api.patch(`/api/events/${this.eventDialog.editingEventId}`, payload);

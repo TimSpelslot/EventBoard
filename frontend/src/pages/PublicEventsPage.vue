@@ -122,14 +122,47 @@
                             >
                               {{ statusLabel(session.my_status) }}
                             </q-chip>
-                            <q-btn
-                              v-if="!session.my_status"
-                              color="primary"
-                              icon="person_add"
-                              label="Sign up"
-                              :loading="signupLoadingSessionId === session.id"
-                              @click="requestSignup(selectedEvent, day, session)"
-                            />
+                            <div v-if="!session.my_status" class="relative-position">
+                              <q-btn
+                                color="primary"
+                                icon="person_add"
+                                label="Sign up"
+                                :loading="signupLoadingSessionId === session.id"
+                                @click="requestSignup(selectedEvent, day, session)"
+                              />
+                              <q-menu
+                                v-if="signupInfoDialog.open && signupInfoDialog.pending?.session.id === session.id"
+                                v-model="signupInfoDialog.open"
+                                :target="true"
+                                anchor="bottom middle"
+                                self="top middle"
+                                :offset="[0, 8]"
+                                persistent
+                              >
+                                <q-card style="width: min(560px, 92vw)">
+                                  <q-card-section>
+                                    <div class="text-h6">{{ signupInfoCopy.title }}</div>
+                                    <div class="text-body2 q-mt-sm">{{ signupInfoCopy.intro }}</div>
+                                    <div class="q-mt-md text-body2">
+                                      <ul class="q-pl-md q-my-none">
+                                        <li>{{ signupInfoCopy.reminder }}</li>
+                                        <li>{{ signupInfoCopy.waitlist }}</li>
+                                        <li>{{ signupInfoCopy.attendance }}</li>
+                                      </ul>
+                                    </div>
+                                  </q-card-section>
+                                  <q-card-actions align="right" class="q-pa-md q-gutter-sm">
+                                    <q-btn flat :label="signupInfoCopy.skipLabel" @click="declineSignupInfo" />
+                                    <q-btn
+                                      color="primary"
+                                      icon="notifications_active"
+                                      :label="signupInfoCopy.enableLabel"
+                                      @click="acceptSignupInfo"
+                                    />
+                                  </q-card-actions>
+                                </q-card>
+                              </q-menu>
+                            </div>
                             <q-btn
                               v-else
                               outline
@@ -167,30 +200,6 @@
       </div>
     </div>
 
-    <q-dialog v-model="signupInfoDialog.open">
-      <q-card style="width: min(560px, 100vw)">
-        <q-card-section>
-          <div class="text-h6">{{ signupInfoCopy.title }}</div>
-          <div class="text-body2 q-mt-sm">{{ signupInfoCopy.intro }}</div>
-          <div class="q-mt-md text-body2">
-            <ul class="q-pl-md q-my-none">
-              <li>{{ signupInfoCopy.reminder }}</li>
-              <li>{{ signupInfoCopy.waitlist }}</li>
-              <li>{{ signupInfoCopy.attendance }}</li>
-            </ul>
-          </div>
-        </q-card-section>
-        <q-card-actions align="right" class="q-pa-md q-gutter-sm">
-          <q-btn flat :label="signupInfoCopy.skipLabel" @click="declineSignupInfo" />
-          <q-btn
-            color="primary"
-            icon="notifications_active"
-            :label="signupInfoCopy.enableLabel"
-            @click="acceptSignupInfo"
-          />
-        </q-card-actions>
-      </q-card>
-    </q-dialog>
   </q-page>
 </template>
 
