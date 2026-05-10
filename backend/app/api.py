@@ -1592,8 +1592,12 @@ class GuestLoginResource(MethodView):
             email = email.strip() or None
 
         guest_user = None
+        # Keep a short retry window in case a randomly generated identifier collides
+        # with the users.google_id unique constraint.
         for _ in range(3):
             guest_user = User(
+                # Historical column name; used as the unique external auth identifier
+                # for both Google OAuth and ad-hoc guest logins.
                 google_id=f"guest-{secrets.token_urlsafe(18)}",
                 name=display_name,
                 display_name=display_name,
