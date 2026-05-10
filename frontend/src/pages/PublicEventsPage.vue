@@ -167,9 +167,9 @@
       </div>
     </div>
 
-    <q-dialog v-model="signupInfoDialog.open" persistent>
-      <q-card style="width: min(560px, 94vw)">
-        <q-card-section>
+    <q-dialog v-model="signupInfoDialog.open" persistent class="app-dialog">
+      <q-card class="dialog-card dialog-card--xl">
+        <q-card-section class="dialog-card__body">
           <div class="text-h6">{{ signupInfoCopy.title }}</div>
           <div class="text-body2 q-mt-sm">{{ signupInfoCopy.intro }}</div>
           <div class="q-mt-md text-body2">
@@ -192,9 +192,9 @@
       </q-card>
     </q-dialog>
 
-    <q-dialog v-model="overlapDialog.open" persistent>
-      <q-card style="width: min(560px, 94vw)">
-        <q-card-section>
+    <q-dialog v-model="overlapDialog.open" persistent class="app-dialog">
+      <q-card class="dialog-card dialog-card--xl">
+        <q-card-section class="dialog-card__body">
           <div class="text-h6">Already placed at this time</div>
           <div class="text-body2 q-mt-sm">
             You are already placed in "{{ overlapDialog.currentTitle }}" at this time. Do you want to switch to "{{ overlapDialog.targetTitle }}"?
@@ -207,9 +207,9 @@
       </q-card>
     </q-dialog>
 
-    <q-dialog v-model="switchWarningDialog.open" persistent>
-      <q-card style="width: min(560px, 94vw)">
-        <q-card-section>
+    <q-dialog v-model="switchWarningDialog.open" persistent class="app-dialog">
+      <q-card class="dialog-card dialog-card--xl">
+        <q-card-section class="dialog-card__body">
           <div class="text-h6">Switch warning</div>
           <div class="text-body2 q-mt-sm">
             Switching may move you from a placed spot to the waiting list. Continue?
@@ -222,9 +222,9 @@
       </q-card>
     </q-dialog>
 
-    <q-dialog v-model="secondSignupDialog.open" persistent>
-      <q-card style="width: min(560px, 94vw)">
-        <q-card-section>
+    <q-dialog v-model="secondSignupDialog.open" persistent class="app-dialog">
+      <q-card class="dialog-card dialog-card--xl">
+        <q-card-section class="dialog-card__body">
           <div class="text-h6">Second signup will be waitlist</div>
           <div class="text-body2 q-mt-sm">
             You already have a placed session this day. A second signup will be added to the waiting list. Do you want to join waitlist or switch sessions?

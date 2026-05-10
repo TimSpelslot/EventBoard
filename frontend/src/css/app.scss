@@ -56,3 +56,66 @@
 	border-radius: 4px;
 	padding: 1px 4px;
 }
+
+.app-dialog .q-dialog__inner--minimized {
+	padding: 16px;
+}
+
+.dialog-card {
+	width: 100%;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	max-height: calc(100vh - 32px);
+}
+
+.dialog-card--sm {
+	max-width: min(420px, calc(100vw - 32px));
+}
+
+.dialog-card--md {
+	max-width: min(460px, calc(100vw - 32px));
+}
+
+.dialog-card--lg {
+	max-width: min(520px, calc(100vw - 32px));
+}
+
+.dialog-card--xl {
+	max-width: min(560px, calc(100vw - 32px));
+}
+
+.dialog-card__body {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow: auto;
+}
+
+@supports (height: 100dvh) {
+	.dialog-card {
+		max-height: calc(100dvh - 32px);
+	}
+}
+
+@media (max-width: 600px) {
+	.app-dialog .q-dialog__inner--minimized {
+		padding: 12px;
+	}
+
+	.dialog-card {
+		max-height: calc(100vh - 24px);
+	}
+
+	.dialog-card--sm,
+	.dialog-card--md,
+	.dialog-card--lg,
+	.dialog-card--xl {
+		max-width: calc(100vw - 24px);
+	}
+
+	@supports (height: 100dvh) {
+		.dialog-card {
+			max-height: calc(100dvh - 24px);
+		}
+	}
+}
