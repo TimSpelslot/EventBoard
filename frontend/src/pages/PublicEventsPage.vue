@@ -167,6 +167,85 @@
       </div>
     </div>
 
+    <q-dialog v-model="signupInfoDialog.open" persistent>
+      <q-card style="width: min(560px, 94vw)">
+        <q-card-section>
+          <div class="text-h6">{{ signupInfoCopy.title }}</div>
+          <div class="text-body2 q-mt-sm">{{ signupInfoCopy.intro }}</div>
+          <div class="q-mt-md text-body2">
+            <ul class="q-pl-md q-my-none">
+              <li>{{ signupInfoCopy.reminder }}</li>
+              <li>{{ signupInfoCopy.waitlist }}</li>
+              <li>{{ signupInfoCopy.attendance }}</li>
+            </ul>
+          </div>
+        </q-card-section>
+        <q-card-actions align="right" class="q-pa-md q-gutter-sm">
+          <q-btn flat :label="signupInfoCopy.skipLabel" @click="declineSignupInfo" />
+          <q-btn
+            color="primary"
+            icon="notifications_active"
+            :label="signupInfoCopy.enableLabel"
+            @click="acceptSignupInfo"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <q-dialog v-model="overlapDialog.open" persistent>
+      <q-card style="width: min(560px, 94vw)">
+        <q-card-section>
+          <div class="text-h6">Already placed at this time</div>
+          <div class="text-body2 q-mt-sm">
+            You are already placed in "{{ overlapDialog.currentTitle }}" at this time. Do you want to switch to "{{ overlapDialog.targetTitle }}"?
+          </div>
+        </q-card-section>
+        <q-card-actions align="right" class="q-pa-md q-gutter-sm">
+          <q-btn flat label="Keep current session" @click="resolveOverlapDialog(false)" />
+          <q-btn color="primary" label="Switch sessions" @click="resolveOverlapDialog(true)" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <q-dialog v-model="switchWarningDialog.open" persistent>
+      <q-card style="width: min(560px, 94vw)">
+        <q-card-section>
+          <div class="text-h6">Switch warning</div>
+          <div class="text-body2 q-mt-sm">
+            Switching may move you from a placed spot to the waiting list. Continue?
+          </div>
+        </q-card-section>
+        <q-card-actions align="right" class="q-pa-md q-gutter-sm">
+          <q-btn flat label="Cancel" @click="resolveSwitchWarningDialog(false)" />
+          <q-btn color="warning" label="Switch anyway" @click="resolveSwitchWarningDialog(true)" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <q-dialog v-model="secondSignupDialog.open" persistent>
+      <q-card style="width: min(560px, 94vw)">
+        <q-card-section>
+          <div class="text-h6">Second signup will be waitlist</div>
+          <div class="text-body2 q-mt-sm">
+            You already have a placed session this day. A second signup will be added to the waiting list. Do you want to join waitlist or switch sessions?
+          </div>
+          <q-option-group
+            v-model="secondSignupDialog.choice"
+            class="q-mt-md"
+            type="radio"
+            :options="[
+              { label: 'Join this session as waitlist', value: 'waitlist' },
+              { label: 'Switch from current placed session to this session', value: 'switch' },
+            ]"
+          />
+        </q-card-section>
+        <q-card-actions align="right" class="q-pa-md q-gutter-sm">
+          <q-btn flat label="Cancel" @click="resolveSecondSignupDialog(null)" />
+          <q-btn color="primary" label="Continue" @click="resolveSecondSignupDialog(secondSignupDialog.choice)" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
   </q-page>
 </template>
 
@@ -230,6 +309,25 @@ export default defineComponent({
       events: [] as PublicEvent[],
       expandedTables: {} as Record<string, boolean>,
       manualLanguage: 'en' as 'en' | 'nl',
+      signupInfoDialog: {
+        open: false,
+        pending: null as null | { event: PublicEvent; day: PublicDay; session: PublicSession },
+      },
+      overlapDialog: {
+        open: false,
+        currentTitle: '',
+        targetTitle: '',
+        resolve: null as null | ((value: boolean) => void),
+      },
+      switchWarningDialog: {
+        open: false,
+        resolve: null as null | ((value: boolean) => void),
+      },
+      secondSignupDialog: {
+        open: false,
+        choice: 'waitlist' as 'waitlist' | 'switch',
+        resolve: null as null | ((value: 'waitlist' | 'switch' | null) => void),
+      },
     };
   },
   computed: {
@@ -285,11 +383,6 @@ export default defineComponent({
     await this.fetchEvents();
   },
   methods: {
-    openContextDialog(options: any) {
-      return this.$q.dialog({
-        ...options,
-      });
-    },
     signupPromptStorageKey() {
       return 'signup-notification-prompt-seen';
     },
@@ -325,21 +418,74 @@ export default defineComponent({
       localStorage.setItem(this.languageStorageKey(), normalized);
     },
     openSignupInfoDialog(event: PublicEvent, day: PublicDay, session: PublicSession) {
-      this.openContextDialog({
-        title: this.signupInfoCopy.title,
-        message: `<p>${this.signupInfoCopy.intro}</p><ul><li>${this.signupInfoCopy.reminder}</li><li>${this.signupInfoCopy.waitlist}</li><li>${this.signupInfoCopy.attendance}</li></ul>`,
-        html: true,
-        cancel: { label: this.signupInfoCopy.skipLabel },
-        ok: { label: this.signupInfoCopy.enableLabel, color: 'primary', icon: 'notifications_active' },
-        persistent: true,
-      }).onOk(async () => {
-        this.markSignupPromptSeen();
-        await enablePushNotifications(this.$api, this.$q);
-        await this.requestSignup(event, day, session, true);
-      }).onCancel(async () => {
-        this.markSignupPromptSeen();
-        await this.requestSignup(event, day, session, true);
+      this.signupInfoDialog.pending = { event, day, session };
+      this.signupInfoDialog.open = true;
+    },
+    async acceptSignupInfo() {
+      const pending = this.signupInfoDialog.pending;
+      this.signupInfoDialog.open = false;
+      if (!pending) {
+        return;
+      }
+      this.markSignupPromptSeen();
+      this.signupInfoDialog.pending = null;
+      await enablePushNotifications(this.$api, this.$q);
+      await this.requestSignup(pending.event, pending.day, pending.session, true);
+    },
+    async declineSignupInfo() {
+      const pending = this.signupInfoDialog.pending;
+      this.signupInfoDialog.open = false;
+      if (!pending) {
+        return;
+      }
+      this.markSignupPromptSeen();
+      this.signupInfoDialog.pending = null;
+      await this.requestSignup(pending.event, pending.day, pending.session, true);
+    },
+    promptOverlapDialog(overlapTitle: string, targetTitle: string) {
+      this.overlapDialog.currentTitle = overlapTitle;
+      this.overlapDialog.targetTitle = targetTitle;
+      this.overlapDialog.open = true;
+      return new Promise<boolean>((resolve) => {
+        this.overlapDialog.resolve = resolve;
       });
+    },
+    resolveOverlapDialog(value: boolean) {
+      const resolver = this.overlapDialog.resolve;
+      this.overlapDialog.resolve = null;
+      this.overlapDialog.open = false;
+      if (resolver) {
+        resolver(value);
+      }
+    },
+    promptSwitchWarningDialog() {
+      this.switchWarningDialog.open = true;
+      return new Promise<boolean>((resolve) => {
+        this.switchWarningDialog.resolve = resolve;
+      });
+    },
+    resolveSwitchWarningDialog(value: boolean) {
+      const resolver = this.switchWarningDialog.resolve;
+      this.switchWarningDialog.resolve = null;
+      this.switchWarningDialog.open = false;
+      if (resolver) {
+        resolver(value);
+      }
+    },
+    promptSecondSignupDialog() {
+      this.secondSignupDialog.choice = 'waitlist';
+      this.secondSignupDialog.open = true;
+      return new Promise<'waitlist' | 'switch' | null>((resolve) => {
+        this.secondSignupDialog.resolve = resolve;
+      });
+    },
+    resolveSecondSignupDialog(value: 'waitlist' | 'switch' | null) {
+      const resolver = this.secondSignupDialog.resolve;
+      this.secondSignupDialog.resolve = null;
+      this.secondSignupDialog.open = false;
+      if (resolver) {
+        resolver(value);
+      }
     },
         groupedTables(sessions: PublicSession[]) {
           const grouped = new Map<number, { id: number; name: string; description: string | null; image_url: string | null; sessions: PublicSession[] }>();
@@ -453,71 +599,39 @@ export default defineComponent({
       const overlap = placedSessions.find((s) => this.sessionOverlaps(s, session));
 
       if (overlap) {
-        this.openContextDialog({
-          title: 'Already placed at this time',
-          message: `You are already placed in "${overlap.title}" at this time. Do you want to switch to "${session.title}"?`,
-          cancel: { label: 'Keep current session' },
-          ok: { label: 'Switch sessions', color: 'primary' },
-          persistent: true,
-        }).onOk(async () => {
-          const likelyWaitlist = event.placement_mode === 'delayed' || session.placed_count >= session.max_players;
-          if (likelyWaitlist) {
-            const proceed = await new Promise<boolean>((resolve) => {
-              this.openContextDialog({
-                title: 'Switch warning',
-                message: 'Switching may move you from a placed spot to the waiting list. Continue?',
-                cancel: true,
-                ok: { label: 'Switch anyway', color: 'warning' },
-                persistent: true,
-              }).onOk(() => resolve(true)).onCancel(() => resolve(false));
-            });
-            if (!proceed) {
-              return;
-            }
+        const confirmed = await this.promptOverlapDialog(overlap.title, session.title);
+        if (!confirmed) {
+          return;
+        }
+        const likelyWaitlist = event.placement_mode === 'delayed' || session.placed_count >= session.max_players;
+        if (likelyWaitlist) {
+          const proceed = await this.promptSwitchWarningDialog();
+          if (!proceed) {
+            return;
           }
-          await this.switchSession(overlap.id, session.id);
-        });
+        }
+        await this.switchSession(overlap.id, session.id);
         return;
       }
 
       if (placedSessions.length > 0) {
-        this.openContextDialog({
-          title: 'Second signup will be waitlist',
-          message: 'You already have a placed session this day. A second signup will be added to the waiting list. Do you want to join waitlist or switch sessions?',
-          options: {
-            type: 'radio',
-            model: 'waitlist',
-            items: [
-              { label: 'Join this session as waitlist', value: 'waitlist' },
-              { label: 'Switch from current placed session to this session', value: 'switch' },
-            ],
-          },
-          cancel: true,
-          ok: { label: 'Continue', color: 'primary' },
-          persistent: true,
-        }).onOk(async (choice: string) => {
-          if (choice === 'switch') {
-            const source = placedSessions[0];
-            const likelyWaitlist = event.placement_mode === 'delayed' || session.placed_count >= session.max_players;
-            if (likelyWaitlist) {
-              const proceed = await new Promise<boolean>((resolve) => {
-                this.openContextDialog({
-                  title: 'Switch warning',
-                  message: 'Switching may move you from a placed spot to the waiting list. Continue?',
-                  cancel: true,
-                  ok: { label: 'Switch anyway', color: 'warning' },
-                  persistent: true,
-                }).onOk(() => resolve(true)).onCancel(() => resolve(false));
-              });
-              if (!proceed) {
-                return;
-              }
+        const choice = await this.promptSecondSignupDialog();
+        if (!choice) {
+          return;
+        }
+        if (choice === 'switch') {
+          const source = placedSessions[0];
+          const likelyWaitlist = event.placement_mode === 'delayed' || session.placed_count >= session.max_players;
+          if (likelyWaitlist) {
+            const proceed = await this.promptSwitchWarningDialog();
+            if (!proceed) {
+              return;
             }
-            await this.switchSession(source.id, session.id);
-          } else {
-            await this.signup(session.id);
           }
-        });
+          await this.switchSession(source.id, session.id);
+        } else {
+          await this.signup(session.id);
+        }
         return;
       }
 
