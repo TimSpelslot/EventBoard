@@ -56,9 +56,3 @@
 	border-radius: 4px;
 	padding: 1px 4px;
 }
-
-/* Keep dialogs scrollable if needed */
-.q-dialog__inner {
-	max-height: 90dvh;
-	overflow-y: auto;
-}
