@@ -30,7 +30,10 @@
               </q-list>
             </q-menu>
           </q-btn>
-          <q-btn v-else label="Login" @click="login" icon="login" />
+          <template v-else>
+            <q-btn label="Login" @click="login" icon="login" />
+            <q-btn label="Log in as guest" @click="openGuestLoginDialog" icon="person" />
+          </template>
           <q-btn
             color="primary"
             @click="toggleDarkMode"
@@ -67,6 +70,31 @@
         @changedUser="fetchMe"
         @mustLogin="login"
       />
+      <q-dialog v-model="guestLoginDialog.open" class="app-dialog">
+        <q-card class="dialog-card dialog-card--sm">
+          <q-form @submit="loginAsGuest">
+            <q-card-section class="q-gutter-md dialog-card__body">
+              <div class="text-h6">Log in as guest</div>
+              <q-input
+                v-model="guestLoginDialog.display_name"
+                label="Name"
+                autofocus
+                :disable="guestLoginDialog.loading"
+              />
+              <q-input
+                v-model="guestLoginDialog.email"
+                label="Email (optional)"
+                type="email"
+                :disable="guestLoginDialog.loading"
+              />
+            </q-card-section>
+            <q-card-actions align="right" class="q-pa-md q-gutter-sm">
+              <q-btn flat label="Cancel" v-close-popup :disable="guestLoginDialog.loading" />
+              <q-btn color="primary" label="Continue" type="submit" :loading="guestLoginDialog.loading" />
+            </q-card-actions>
+          </q-form>
+        </q-card>
+      </q-dialog>
       <a href="https://github.com/SpelSlot-IT/AdventureBoard" class="fixed-bottom-right q-mr-sm">
         <q-icon name="img:https://github.com/favicon.ico" size="lg" class="bg-grey-5" />
       </a>
@@ -91,7 +119,13 @@ export default defineComponent({
         id: number;
         display_name: string;
         privilege_level: number;
-        profile_pic: string;
+        profile_pic: string | null;
+      },
+      guestLoginDialog: {
+        open: false,
+        loading: false,
+        display_name: '',
+        email: '',
       },
     };
   },
@@ -116,6 +150,44 @@ export default defineComponent({
       window.location.href = `/api/login?next=${encodeURIComponent(
         currentUrl
       )}`;
+    },
+    openGuestLoginDialog() {
+      this.guestLoginDialog.open = true;
+      this.guestLoginDialog.loading = false;
+      this.guestLoginDialog.display_name = '';
+      this.guestLoginDialog.email = '';
+    },
+    async loginAsGuest() {
+      const displayName = this.guestLoginDialog.display_name.trim();
+      const email = this.guestLoginDialog.email.trim();
+      if (!displayName) {
+        this.$q.notify({
+          type: 'negative',
+          message: 'Name is required',
+        });
+        return;
+      }
+
+      this.guestLoginDialog.loading = true;
+      try {
+        await this.$api.post('/api/login/guest', {
+          display_name: displayName,
+          email: email || null,
+        });
+        await this.fetchMe();
+        this.guestLoginDialog.open = false;
+        this.$q.notify({
+          type: 'positive',
+          message: 'Logged in as guest',
+        });
+      } catch (error) {
+        this.$q.notify({
+          type: 'negative',
+          message: this.$extractErrors(error).join(', ') || 'Guest login failed',
+        });
+      } finally {
+        this.guestLoginDialog.loading = false;
+      }
     },
     async optionallyFetchUser() {
       try {

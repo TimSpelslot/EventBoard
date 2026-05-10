@@ -18,6 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import joinedload
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 import json
+import secrets
 import requests
 
 from .models import (
@@ -91,6 +92,10 @@ class RedirectSchema(ma.Schema):
 
 class MessageSchema(ma.Schema):
     message = fields.String(required=True)
+
+class GuestLoginSchema(ma.Schema):
+    display_name = fields.String(required=True, validate=validate.Length(min=1, max=255))
+    email = fields.Email(required=False, allow_none=True, load_default=None, validate=validate.Length(max=255))
 
 class AdminActionSchema(ma.Schema):
     action = fields.String(required=True)
@@ -1570,6 +1575,47 @@ class LoginResource(MethodView):
             state=next_url  # store the original URL
         )
         return redirect(request_uri)
+
+
+@blp_utils.route("/login/guest")
+class GuestLoginResource(MethodView):
+    @blp_utils.arguments(GuestLoginSchema())
+    @blp_utils.response(200, UserSchema())
+    def post(self, args):
+        """Create an ad-hoc guest account and log in."""
+        display_name = (args.get("display_name") or "").strip()
+        if not display_name:
+            abort(400, message="Display name is required")
+
+        email = args.get("email")
+        if isinstance(email, str):
+            email = email.strip() or None
+
+        guest_user = None
+        # Keep a short retry window in case a randomly generated identifier collides
+        # with the users.google_id unique constraint.
+        for _ in range(3):
+            guest_user = User(
+                # Historical column name; used as the unique external auth identifier
+                # for both Google OAuth and ad-hoc guest logins.
+                google_id=f"guest-{secrets.token_urlsafe(18)}",
+                name=display_name,
+                display_name=display_name,
+                email=email,
+            )
+            db.session.add(guest_user)
+            try:
+                db.session.commit()
+                break
+            except IntegrityError:
+                db.session.rollback()
+                guest_user = None
+
+        if guest_user is None:
+            abort(500, message="Failed to create guest login")
+
+        login_user(guest_user)
+        return guest_user
     
 @blp_utils.route("/login/callback")
 class CallbackResource(MethodView):

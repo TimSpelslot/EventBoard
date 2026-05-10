@@ -433,10 +433,10 @@
       </q-card>
     </q-dialog>
 
-    <q-dialog v-model="guestDialog.open">
-      <q-card style="min-width: 420px">
+    <q-dialog v-model="guestDialog.open" class="app-dialog">
+      <q-card class="dialog-card dialog-card--sm">
         <q-card-section class="text-h6">Add Walk-in Player</q-card-section>
-        <q-card-section class="q-gutter-md">
+        <q-card-section class="q-gutter-md dialog-card__body">
           <q-input v-model="guestDialog.form.display_name" label="Player name" autofocus />
           <q-select
             v-model="guestDialog.form.status"
@@ -454,10 +454,10 @@
       </q-card>
     </q-dialog>
 
-    <q-dialog v-model="notifyDialog.open">
-      <q-card style="min-width: 460px">
+    <q-dialog v-model="notifyDialog.open" class="app-dialog">
+      <q-card class="dialog-card dialog-card--md">
         <q-card-section class="text-h6">Notify Session Participants</q-card-section>
-        <q-card-section class="q-gutter-md">
+        <q-card-section class="q-gutter-md dialog-card__body">
           <q-input v-model="notifyDialog.form.title" label="Title" />
           <q-input v-model="notifyDialog.form.body" label="Message" type="textarea" autogrow />
           <q-toggle v-model="notifyDialog.form.include_waitlist" label="Include waiting list" />
@@ -469,10 +469,10 @@
       </q-card>
     </q-dialog>
 
-    <q-dialog v-model="participantNotifyDialog.open">
-      <q-card style="min-width: 460px">
+    <q-dialog v-model="participantNotifyDialog.open" class="app-dialog">
+      <q-card class="dialog-card dialog-card--md">
         <q-card-section class="text-h6">Notify Participant</q-card-section>
-        <q-card-section class="q-gutter-md">
+        <q-card-section class="q-gutter-md dialog-card__body">
           <div class="text-caption text-grey-7">Recipient: {{ participantNotifyDialog.recipientName || 'Unknown user' }}</div>
           <q-input v-model="participantNotifyDialog.form.title" label="Title" />
           <q-input v-model="participantNotifyDialog.form.body" label="Message" type="textarea" autogrow />
@@ -485,10 +485,10 @@
     </q-dialog>
 
     <!-- Membership dialog -->
-    <q-dialog v-model="membershipDialog.open">
-      <q-card style="min-width: 420px">
+    <q-dialog v-model="membershipDialog.open" class="app-dialog">
+      <q-card class="dialog-card dialog-card--sm">
         <q-card-section class="text-h6">Add Member</q-card-section>
-        <q-card-section class="q-gutter-md">
+        <q-card-section class="q-gutter-md dialog-card__body">
           <q-input
             v-model="membershipDialog.searchQuery"
             label="Search user by name"
@@ -530,10 +530,10 @@
       </q-card>
     </q-dialog>
 
-    <q-dialog v-model="eventDialog.open">
-      <q-card style="min-width: 460px">
+    <q-dialog v-model="eventDialog.open" class="app-dialog">
+      <q-card class="dialog-card dialog-card--md">
         <q-card-section class="text-h6">{{ eventDialog.editingEventId ? 'Edit Event' : 'Create Event' }}</q-card-section>
-        <q-card-section class="q-gutter-md">
+        <q-card-section class="q-gutter-md dialog-card__body">
           <q-input v-model="eventDialog.form.title" label="Title" autofocus />
           <q-input v-model="eventDialog.form.description" label="Description" type="textarea" autogrow />
           <q-input v-model="eventDialog.form.image_url" label="Event image URL (optional)" />
@@ -570,10 +570,10 @@
       </q-card>
     </q-dialog>
 
-    <q-dialog v-model="dayDialog.open">
-      <q-card style="min-width: 420px">
+    <q-dialog v-model="dayDialog.open" class="app-dialog">
+      <q-card class="dialog-card dialog-card--sm">
         <q-card-section class="text-h6">{{ dayDialog.editingDayId ? 'Edit Event Day' : 'Add Event Day' }}</q-card-section>
-        <q-card-section class="q-gutter-md">
+        <q-card-section class="q-gutter-md dialog-card__body">
           <DatePicker v-model="dayDialog.form.date" label="Date" />
           <q-input v-model="dayDialog.form.label" label="Label" hint="Optional, e.g. Day 1 or Saturday" />
           <q-input v-model.number="dayDialog.form.sort_order" type="number" label="Sort order" />
@@ -594,10 +594,10 @@
       </q-card>
     </q-dialog>
 
-    <q-dialog v-model="tableDialog.open">
-      <q-card style="min-width: 420px">
+    <q-dialog v-model="tableDialog.open" class="app-dialog">
+      <q-card class="dialog-card dialog-card--sm">
         <q-card-section class="text-h6">{{ tableDialog.editingTableId ? 'Edit Table' : 'Add Table' }}</q-card-section>
-        <q-card-section class="q-gutter-md">
+        <q-card-section class="q-gutter-md dialog-card__body">
           <q-input v-model="tableDialog.form.name" label="Table name" autofocus />
           <q-input v-model="tableDialog.form.description" label="Table description (optional)" type="textarea" autogrow />
           <q-input v-model="tableDialog.form.image_url" label="Table image URL (optional)" />
@@ -619,10 +619,10 @@
       </q-card>
     </q-dialog>
 
-    <q-dialog v-model="sessionDialog.open">
-      <q-card style="min-width: 520px">
+    <q-dialog v-model="sessionDialog.open" class="app-dialog">
+      <q-card class="dialog-card dialog-card--lg">
         <q-card-section class="text-h6">{{ sessionDialog.editingSessionId ? 'Edit Session' : 'Add Session' }}</q-card-section>
-        <q-card-section class="q-gutter-md">
+        <q-card-section class="q-gutter-md dialog-card__body">
           <q-input v-model="sessionDialog.form.title" label="Title" autofocus />
           <q-input v-model="sessionDialog.form.short_description" label="Description (optional)" type="textarea" autogrow />
           <q-select

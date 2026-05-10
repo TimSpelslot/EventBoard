@@ -1994,3 +1994,73 @@ def test_player_same_time_signup_is_blocked(client, app, admin_user_id, monkeypa
 
     overlap_response = client.post(f'/api/event-sessions/{overlap_session_id}/signup', base_url='https://localhost')
     assert overlap_response.status_code == 409
+
+
+def test_guest_login_requires_non_empty_display_name(client):
+    response = client.post(
+        '/api/login/guest',
+        json={'display_name': '   '},
+        base_url='https://localhost',
+    )
+    assert response.status_code == 400
+
+
+def test_guest_login_can_self_signup_and_cancel(client, app, admin_user_id, monkeypatch):
+    monkeypatch.setattr('app.api.send_fcm_notification', lambda *a, **kw: None)
+    with app.app_context():
+        event = Event(
+            title='Guest Signup Event',
+            created_by_user_id=admin_user_id,
+            placement_mode=Event.PLACEMENT_IMMEDIATE,
+        )
+        db.session.add(event)
+        db.session.flush()
+        day = EventDay(event_id=event.id, date=date(2027, 2, 6), label='Day 1')
+        db.session.add(day)
+        db.session.flush()
+        table = EventTable(event_day_id=day.id, name='Guest Table')
+        db.session.add(table)
+        db.session.flush()
+        session = EventSession(
+            title='Guest Signup Session',
+            short_description='Guest flow',
+            event_day_id=day.id,
+            event_table_id=table.id,
+            start_time=time(15, 0),
+            duration_minutes=45,
+            max_players=2,
+            placement_mode=EventSession.PLACEMENT_IMMEDIATE,
+        )
+        db.session.add(session)
+        db.session.commit()
+        session_id = session.id
+
+    guest_login_response = client.post(
+        '/api/login/guest',
+        json={'display_name': 'Walk-in Guest', 'email': 'walkin@example.com'},
+        base_url='https://localhost',
+    )
+    assert guest_login_response.status_code == 200
+    guest_data = guest_login_response.get_json()
+    assert guest_data['display_name'] == 'Walk-in Guest'
+    guest_id = guest_data['id']
+
+    me_response = client.get('/api/users/me', base_url='https://localhost')
+    assert me_response.status_code == 200
+    assert me_response.get_json()['id'] == guest_id
+
+    signup_response = client.post(f'/api/event-sessions/{session_id}/signup', base_url='https://localhost')
+    assert signup_response.status_code == 200
+    assert signup_response.get_json()['status'] == EventSessionParticipant.STATUS_PLACED
+
+    with app.app_context():
+        participant = db.session.execute(
+            db.select(EventSessionParticipant).where(
+                EventSessionParticipant.event_session_id == session_id,
+                EventSessionParticipant.user_id == guest_id,
+            )
+        ).scalars().first()
+        assert participant is not None
+
+    cancel_response = client.delete(f'/api/event-sessions/{session_id}/signup', base_url='https://localhost')
+    assert cancel_response.status_code == 200
