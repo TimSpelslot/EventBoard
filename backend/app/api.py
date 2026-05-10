@@ -562,7 +562,7 @@ class PublicEventsResource(MethodView):
                 .joinedload(EventSession.participants),
             )
             .where(Event.is_active == True)
-            .order_by(Event.created_at.desc())
+            .order_by(Event.sort_order.asc(), Event.created_at.desc())
         ).unique().scalars().all()
 
         today = date.today()
@@ -1279,8 +1279,6 @@ class EventSessionSelfSignupResource(MethodView):
         )
         db.session.add(participant)
         db.session.commit()
-
-        _notify_user_participant_status_change(participant, event_session, event_day, trigger="created")
         return db.session.execute(
             db.select(EventSessionParticipant)
             .options(joinedload(EventSessionParticipant.guest_player), joinedload(EventSessionParticipant.user))
@@ -1315,7 +1313,7 @@ class EventSessionSelfSignupResource(MethodView):
 
         db.session.commit()
 
-        if removed_user_id and removed_status in {
+        if removed_user_id and removed_user_id != current_user.id and removed_status in {
             EventSessionParticipant.STATUS_PLACED,
             EventSessionParticipant.STATUS_WAITLIST,
             EventSessionParticipant.STATUS_BLOCKED_CONFLICT,
