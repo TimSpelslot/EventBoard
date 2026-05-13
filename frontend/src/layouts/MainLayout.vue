@@ -70,10 +70,10 @@
         @changedUser="fetchMe"
         @mustLogin="login"
       />
-      <q-dialog v-model="guestLoginDialog.open" class="app-dialog">
-        <q-card class="dialog-card dialog-card--sm">
+      <q-dialog v-model="guestLoginDialog.open">
+        <q-card>
           <q-form @submit="loginAsGuest">
-            <q-card-section class="q-gutter-md dialog-card__body">
+            <q-card-section class="q-gutter-md">
               <div class="text-h6">Log in as guest</div>
               <q-input
                 v-model="guestLoginDialog.display_name"
