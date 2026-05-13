@@ -683,12 +683,7 @@ export default defineComponent({
   margin-top: 16px;
 }
 
-.event-card {
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-
 .event-card:hover {
-  transform: translateY(-2px);
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.14);
 }
 
@@ -730,17 +725,12 @@ export default defineComponent({
   border: 1px solid rgba(255, 255, 255, 0.4);
 }
 
-.table-sessions-panel {
-  backdrop-filter: blur(1px);
-}
-
 .table-session-card {
   background: rgba(165, 165, 165, 0.44);
 }
 
 :global(.body--dark) .table-session-card {
   background: rgba(18, 25, 32, 0.42);
-  backdrop-filter: blur(2px);
   border-color: rgba(180, 205, 230, 0.22);
 }
 
